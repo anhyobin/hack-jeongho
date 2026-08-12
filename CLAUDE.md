@@ -28,6 +28,10 @@ cd _dl && python3 inspect_assets.py
 
 # leaderboard: mint a token, wait, submit once; prints age, rate and raw response
 python3 tools/board_probe.py <wait_seconds> <score> [rows] [name] [char]
+
+# leaderboard: mint N tokens up front, retry one target score at escalating ages
+# (default ages 480,600,720 — stops at the first acceptance)
+python3 tools/submit_target.py <score> <name> [char] [ages] [rows]
 ```
 
 `tools/` holds byte-identical copies of the three `_dl/` scripts — a change to one needs the same change to the other, or drop one copy.
@@ -73,9 +77,11 @@ The server has no published source; these rules were established by observation:
 
 Checks run in that order bottom-up: **throttle first, then token, then consistency, then rate.** A request with a bogus `token` — or no `token` field at all — still answers `429 too fast` while throttled, which is how the ordering was established. Burst a batch of probes and every response after the first tells you about the throttle, not about your score. Space them ≥30s.
 
-One token buys exactly one attempt, so "submit and retry on rejection" needs a fresh token per try; that is why `submit_run.py` mints them in bulk.
+One token buys exactly one attempt, so "submit and retry on rejection" needs a fresh token per try; that is why `submit_target.py` (and the older two-phase `submit_run.py`, kept as a record) mints them in bulk. A 429 is the exception — the throttle precedes token validation, so a throttled request does not spend its token and the same one can be retried after a backoff.
 
-Measured boundary: 100 pts at 12.5s of token age (8.0/s) and 1004 pts at 150s (6.69/s) were **accepted**; 120 pts at 12.3s (9.75/s) was **rejected**. Fitting `score <= (elapsed + g) * r` to those points forces `g < 6.4s`, so the rule is near a plain ratio with `r` roughly in 6.4–9.75 pts/s.
+Measured boundary: 100 pts at 12.5s of token age (8.0/s), 1004 pts at 150s (6.69/s) and 3000 pts at 490s (6.12/s) were **accepted**; 120 pts at 12.3s (9.75/s) was **rejected**. Fitting `score <= (elapsed + g) * r` to those points forces `g < 6.4s`, so the rule is near a plain ratio with `r` roughly in 6.4–9.75 pts/s. Treating 6.4/s as the safe rate is validated: 3000 pts landed on the **first** attempt at a scheduled 480s, 11s over what 6.4/s demands. Tokens are known good to 490s of age; no absolute score cap exists below 3000. When quoting a rate from a scheduler log, check the age against the token's own mint time — a bulk-minting scheduler whose `t0` is the *last* mint understates the age of every earlier token.
+
+Entries carrying `"admin_insert": true` (observed on `호호호 2500`) were inserted by the server operator outside the POST path — exclude them when reasoning about what validation accepts.
 
 Two facts make the boundary cheap to search: a rejection **creates no leaderboard entry**, and nothing binds a token to a browser session — tokens can be minted in bulk up front and aged in parallel. So escalating token age against a fixed target score costs only wall-clock, and the first acceptance is the desired result. Submit with `score == rows` unless you have a reason not to; `score <= rows * 2` is the measured allowance, and the server stores `stage = floor(rows/20)` (0-based, not the 1-based number the in-game banner shows). Space POSTs ≥60s apart to stay clear of the 429 limiter.
 
