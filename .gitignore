@@ -1,0 +1,8 @@
+# 게임 원본 바이너리와 중간 산출물은 커밋하지 않아요 (저작자 자산)
+index.pck
+index.wasm
+pck_out/
+*.gdc
+*.zst
+__pycache__/
+*.pyc
