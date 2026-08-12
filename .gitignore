@@ -1,8 +1,6 @@
-# 게임 원본 바이너리와 중간 산출물은 커밋하지 않아요 (저작자 자산)
-index.pck
-index.wasm
-pck_out/
-*.gdc
-*.zst
+# 게임 원본 자산과 언팩 산출물은 커밋하지 않는다 (저작자 자산 + 재생성 가능)
+_dl/index.pck
+_dl/index.js
+_dl/extracted/
 __pycache__/
 *.pyc

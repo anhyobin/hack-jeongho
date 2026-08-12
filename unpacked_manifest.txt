@@ -1,0 +1,193 @@
+pack_format_version=4 engine=4.7.1 flags=2 file_base=112
+reserved[0:4]= [3410416, 0, 0, 0]
+dir_off= 0x3409f0
+file_count= 110
+      675  flags=0  magic=b'RSRC'       .godot/exported/133200997/export-3070c538c03ee49b7677ff960a3f5195-main.scn
+     1081  flags=0  magic=b'list'       .godot/global_script_class_cache.cfg
+   584816  flags=0  magic=b'RSCC'       .godot/imported/Galmuri11-Bold.ttf-3a23d149e7b99ee54cc37134f38f9040.fontdata
+  1407604  flags=0  magic=b'RSCC'       .godot/imported/Galmuri11.ttf-dc494bdf43221ea4068442166ca7b6a4.fontdata
+  1177428  flags=0  magic=b'RSCC'       .godot/imported/Galmuri9.ttf-98ce197f22f89047170858fe1b62fb4f.fontdata
+   130199  flags=0  magic=b'RSRC'       .godot/imported/bgm.wav-d53cd8409bb0794a337e4422da03b7cd.sample
+      244  flags=0  magic=b'GST2'       .godot/imported/bus.png-1087ef534bc88b273ee0d42f8bc9832a.ctex
+      180  flags=0  magic=b'GST2'       .godot/imported/bush.png-297258bb5454fca18db8c442484f76c8.ctex
+      254  flags=0  magic=b'GST2'       .godot/imported/car_blue.png-88f8d447cb7e8403035f344ef0b84816.ctex
+      260  flags=0  magic=b'GST2'       .godot/imported/car_red.png-ad25871ea92a61506c4322833ae37d25.ctex
+      266  flags=0  magic=b'GST2'       .godot/imported/car_white.png-d6c3ccee6063e49a5b95c07119aa71f8.ctex
+      206  flags=0  magic=b'GST2'       .godot/imported/chick_0.png-62d93e912b278f95202a9758317e6ee4.ctex
+      210  flags=0  magic=b'GST2'       .godot/imported/chick_1.png-2a9882359dfea2778eb477807870a5f7.ctex
+      687  flags=0  magic=b'RSRC'       .godot/imported/click.wav-726094e36c7052fadb6392aaf7409595.sample
+     3527  flags=0  magic=b'RSRC'       .godot/imported/crash.wav-f4254f4c7312a4846a3dae6b0c08b6bf.sample
+      172  flags=0  magic=b'GST2'       .godot/imported/floe.png-e1dcfe24643198d4bf6016a4ce14e5e6.ctex
+      200  flags=0  magic=b'GST2'       .godot/imported/glow.png-9e9532ca90031f66ccc6d1c26452e454.ctex
+     2359  flags=0  magic=b'RSRC'       .godot/imported/gorani.wav-2bae0c25716109acf4482053954d3c11.sample
+      296  flags=0  magic=b'GST2'       .godot/imported/gorani_0.png-09644bb5bb14ab31129defcccb11d35d.ctex
+      282  flags=0  magic=b'GST2'       .godot/imported/gorani_1.png-4d4ab4ce99c6f52153e519d3504613ca.ctex
+      224  flags=0  magic=b'GST2'       .godot/imported/gorani_p_0.png-48e05a1d049aa0d4c5f135f9c4a6d36b.ctex
+      240  flags=0  magic=b'GST2'       .godot/imported/gorani_p_1.png-71c851e19c1e21010bb0034d3f731f1f.ctex
+      216  flags=0  magic=b'GST2'       .godot/imported/hedgehog_0.png-7f08088d5649da87769e233eb348dd36.ctex
+      216  flags=0  magic=b'GST2'       .godot/imported/hedgehog_1.png-76225955b37d7f35e1b60c00d7ae8d3c.ctex
+     1039  flags=0  magic=b'RSRC'       .godot/imported/hop.wav-cad010ed019beb222695f942aec5ffa1.sample
+     2999  flags=0  magic=b'RSRC'       .godot/imported/horn.wav-ae99826b0547914adf22e238bb22a379.sample
+      442  flags=0  magic=b'GST2'       .godot/imported/icon.png-487276ed1e3a0c39cad0279d744ee560.ctex
+      192  flags=0  magic=b'GST2'       .godot/imported/log.png-d8dbf3aedfbdf4e88b60371617444e20.ctex
+     1655  flags=0  magic=b'RSRC'       .godot/imported/near.wav-4d9098974f00a3c0a874ab1ad83d8a17.sample
+     8079  flags=0  magic=b'RSRC'       .godot/imported/over.wav-27f107ddafb3bf4c14dc9aa4e6dc8268.sample
+      214  flags=0  magic=b'GST2'       .godot/imported/peccy_0.png-fe362f3b288cca9e3e344bfc354eeed5.ctex
+      212  flags=0  magic=b'GST2'       .godot/imported/peccy_1.png-00f7c7632cb84934e9f27a7513604a07.ctex
+      304  flags=0  magic=b'GST2'       .godot/imported/pine_snow.png-087dd590494ada9c4d6f5e69e4719de1.ctex
+      200  flags=0  magic=b'GST2'       .godot/imported/rabbit_0.png-8db0d85802adddae89f9567d8c11b95a.ctex
+      222  flags=0  magic=b'GST2'       .godot/imported/rabbit_1.png-1dfe4c3a7ca1e261262513e97d0305cf.ctex
+      168  flags=0  magic=b'GST2'       .godot/imported/rock.png-bcf52a497742222238feaf1e96d9860c.ctex
+      228  flags=0  magic=b'GST2'       .godot/imported/sign_deer.png-0e55f1d32996dc110dbe89e4b8b6530f.ctex
+     3527  flags=0  magic=b'RSRC'       .godot/imported/splash.wav-5ec4fd8293fbd42c27becff16a2e488f.sample
+     3791  flags=0  magic=b'RSRC'       .godot/imported/stage.wav-1fc25a89e98d87fc2281423d233b0140.sample
+      276  flags=0  magic=b'GST2'       .godot/imported/taxi.png-9de6b0ca7079fbbf242e58c43a30ddfa.ctex
+     5935  flags=0  magic=b'RSRC'       .godot/imported/train.wav-1dfd8c349fd09ae2d58dca108a860671.sample
+      256  flags=0  magic=b'GST2'       .godot/imported/train_car.png-b64b5fc940140ba40a44c904867fd455.ctex
+      280  flags=0  magic=b'GST2'       .godot/imported/train_engine.png-6124523078f3682506a8941e9f14487d.ctex
+      252  flags=0  magic=b'GST2'       .godot/imported/tree.png-15cb16b197553088007c6ba3ce2f75b0.ctex
+      294  flags=0  magic=b'GST2'       .godot/imported/truck.png-1ea38b1729848f1a090cd7377bf55c2e.ctex
+      142  flags=0  magic=b'GST2'       .godot/imported/warn.png-43fb1bc1509c5e06479b0bb6ed573fe6.ctex
+     2147  flags=0  magic=b'4\x00\x00\x00'  .godot/uid_cache.bin
+      149  flags=0  magic=b'[rem'       assets/audio/bgm.wav.import
+      152  flags=0  magic=b'[rem'       assets/audio/click.wav.import
+      151  flags=0  magic=b'[rem'       assets/audio/crash.wav.import
+      151  flags=0  magic=b'[rem'       assets/audio/gorani.wav.import
+      150  flags=0  magic=b'[rem'       assets/audio/hop.wav.import
+      150  flags=0  magic=b'[rem'       assets/audio/horn.wav.import
+      151  flags=0  magic=b'[rem'       assets/audio/near.wav.import
+      151  flags=0  magic=b'[rem'       assets/audio/over.wav.import
+      153  flags=0  magic=b'[rem'       assets/audio/splash.wav.import
+      152  flags=0  magic=b'[rem'       assets/audio/stage.wav.import
+      152  flags=0  magic=b'[rem'       assets/audio/train.wav.import
+      171  flags=0  magic=b'[rem'       assets/fonts/Galmuri11-Bold.ttf.import
+      166  flags=0  magic=b'[rem'       assets/fonts/Galmuri11.ttf.import
+      163  flags=0  magic=b'[rem'       assets/fonts/Galmuri9.ttf.import
+      192  flags=0  magic=b'[rem'       assets/sprites/bus.png.import
+      193  flags=0  magic=b'[rem'       assets/sprites/bush.png.import
+      197  flags=0  magic=b'[rem'       assets/sprites/car_blue.png.import
+      196  flags=0  magic=b'[rem'       assets/sprites/car_red.png.import
+      198  flags=0  magic=b'[rem'       assets/sprites/car_white.png.import
+      196  flags=0  magic=b'[rem'       assets/sprites/chick_0.png.import
+      196  flags=0  magic=b'[rem'       assets/sprites/chick_1.png.import
+      192  flags=0  magic=b'[rem'       assets/sprites/floe.png.import
+      193  flags=0  magic=b'[rem'       assets/sprites/glow.png.import
+      196  flags=0  magic=b'[rem'       assets/sprites/gorani_0.png.import
+      197  flags=0  magic=b'[rem'       assets/sprites/gorani_1.png.import
+      199  flags=0  magic=b'[rem'       assets/sprites/gorani_p_0.png.import
+      199  flags=0  magic=b'[rem'       assets/sprites/gorani_p_1.png.import
+      199  flags=0  magic=b'[rem'       assets/sprites/hedgehog_0.png.import
+      199  flags=0  magic=b'[rem'       assets/sprites/hedgehog_1.png.import
+      190  flags=0  magic=b'[rem'       assets/sprites/log.png.import
+      196  flags=0  magic=b'[rem'       assets/sprites/peccy_0.png.import
+      196  flags=0  magic=b'[rem'       assets/sprites/peccy_1.png.import
+      197  flags=0  magic=b'[rem'       assets/sprites/pine_snow.png.import
+      196  flags=0  magic=b'[rem'       assets/sprites/rabbit_0.png.import
+      196  flags=0  magic=b'[rem'       assets/sprites/rabbit_1.png.import
+      193  flags=0  magic=b'[rem'       assets/sprites/rock.png.import
+      197  flags=0  magic=b'[rem'       assets/sprites/sign_deer.png.import
+      193  flags=0  magic=b'[rem'       assets/sprites/taxi.png.import
+      198  flags=0  magic=b'[rem'       assets/sprites/train_car.png.import
+      200  flags=0  magic=b'[rem'       assets/sprites/train_engine.png.import
+      193  flags=0  magic=b'[rem'       assets/sprites/tree.png.import
+      193  flags=0  magic=b'[rem'       assets/sprites/truck.png.import
+      193  flags=0  magic=b'[rem'       assets/sprites/warn.png.import
+     1031  flags=0  magic=b'\x89PNG'    icon.png
+      193  flags=0  magic=b'[rem'       icon.png.import
+       97  flags=0  magic=b'[rem'       main.tscn.remap
+      886  flags=0  magic=b'ECFG'       project.binary
+       39  flags=0  magic=b'[rem'       scripts/game.gd.remap
+    10473  flags=0  magic=b'GDSC'       scripts/game.gdc
+       39  flags=0  magic=b'[rem'       scripts/main.gd.remap
+     2362  flags=0  magic=b'GDSC'       scripts/main.gdc
+       41  flags=0  magic=b'[rem'       scripts/player.gd.remap
+     3751  flags=0  magic=b'GDSC'       scripts/player.gdc
+       42  flags=0  magic=b'[rem'       scripts/ranking.gd.remap
+     3207  flags=0  magic=b'GDSC'       scripts/ranking.gdc
+       38  flags=0  magic=b'[rem'       scripts/row.gd.remap
+    11570  flags=0  magic=b'GDSC'       scripts/row.gdc
+       38  flags=0  magic=b'[rem'       scripts/sfx.gd.remap
+     1604  flags=0  magic=b'GDSC'       scripts/sfx.gdc
+       45  flags=0  magic=b'[rem'       scripts/theme_defs.gd.remap
+     3397  flags=0  magic=b'GDSC'       scripts/theme_defs.gdc
+       37  flags=0  magic=b'[rem'       scripts/ui.gd.remap
+    17949  flags=0  magic=b'GDSC'       scripts/ui.gdc
+################ project.binary (ProjectSettings) ################
+  application/config/name = ('String', '고라니 피하기')
+  application/run/main_scene = ('String', 'res://main.tscn')
+  application/config/features = <variant type 34 raw=220000000100000004000000342e3700>
+  application/boot_splash/bg_color = <variant type 20 raw=14000000b29def3d0ad7233e8fc2f53d0000803f>
+  application/boot_splash/show_image = False
+  application/config/icon = ('String', 'res://icon.png')
+  display/window/size/viewport_width = 640
+  display/window/size/viewport_height = 960
+  display/window/stretch/mode = ('String', 'canvas_items')
+  display/window/handheld/orientation = 1
+  input_devices/pointing/emulate_touch_from_mouse = True
+  rendering/textures/canvas_textures/default_texture_filter = 0
+  rendering/renderer/rendering_method = ('String', 'gl_compatibility')
+  rendering/renderer/rendering_method.mobile = ('String', 'gl_compatibility')
+  rendering/2d/snap/snap_2d_transforms_to_pixel = True
+
+################ sprite dimensions (.ctex) ################
+  bus               44x16   df=0x0d000000 embed=WebP filesize=244
+  bush              16x12   df=0x0d000000 embed=WebP filesize=180
+  car_blue          28x14   df=0x0d000000 embed=WebP filesize=254
+  car_red           28x14   df=0x0d000000 embed=WebP filesize=260
+  car_white         28x14   df=0x0d000000 embed=WebP filesize=266
+  chick_0           16x16   df=0x0d000000 embed=WebP filesize=206
+  chick_1           16x16   df=0x0d000000 embed=WebP filesize=210
+  floe              48x14   df=0x0d000000 embed=WebP filesize=172
+  glow              11x11   df=0x0d000000 embed=WebP filesize=200
+  gorani_0          27x18   df=0x0d000000 embed=WebP filesize=296
+  gorani_1          27x18   df=0x0d000000 embed=WebP filesize=282
+  gorani_p_0        16x16   df=0x0d000000 embed=WebP filesize=224
+  gorani_p_1        16x16   df=0x0d000000 embed=WebP filesize=240
+  hedgehog_0        16x16   df=0x0d000000 embed=WebP filesize=216
+  hedgehog_1        16x16   df=0x0d000000 embed=WebP filesize=216
+  icon             128x128  df=0x0d000000 embed=WebP filesize=442
+  log               48x14   df=0x0d000000 embed=WebP filesize=192
+  peccy_0           16x16   df=0x0d000000 embed=WebP filesize=214
+  peccy_1           16x16   df=0x0d000000 embed=WebP filesize=212
+  pine_snow         20x28   df=0x0d000000 embed=WebP filesize=304
+  rabbit_0          16x16   df=0x0d000000 embed=WebP filesize=200
+  rabbit_1          16x16   df=0x0d000000 embed=WebP filesize=222
+  rock              14x11   df=0x0d000000 embed=WebP filesize=168
+  sign_deer         18x24   df=0x0d000000 embed=WebP filesize=228
+  taxi              28x14   df=0x0d000000 embed=WebP filesize=276
+  train_car         48x22   df=0x0d000000 embed=WebP filesize=256
+  train_engine      52x22   df=0x0d000000 embed=WebP filesize=280
+  tree              20x28   df=0x0d000000 embed=WebP filesize=252
+  truck             42x16   df=0x0d000000 embed=WebP filesize=294
+  warn              14x14   df=0x0d000000 embed=WebP filesize=142
+
+################ audio imports ################
+  bgm      {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://kvn2ke2clf2p"', 'path': '"res://.godot/imported/bgm.wav-d53cd8409bb0794a337e4422da03b7cd.sample"'}
+  click    {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://bxgt7ltymo24g"', 'path': '"res://.godot/imported/click.wav-726094e36c7052fadb6392aaf7409595.sample"'}
+  crash    {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://1iiufw5nldy0"', 'path': '"res://.godot/imported/crash.wav-f4254f4c7312a4846a3dae6b0c08b6bf.sample"'}
+  gorani   {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://4lco86dhx12"', 'path': '"res://.godot/imported/gorani.wav-2bae0c25716109acf4482053954d3c11.sample"'}
+  hop      {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://c46d0uynfsh5t"', 'path': '"res://.godot/imported/hop.wav-cad010ed019beb222695f942aec5ffa1.sample"'}
+  horn     {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://t2e7atbw6ekj"', 'path': '"res://.godot/imported/horn.wav-ae99826b0547914adf22e238bb22a379.sample"'}
+  near     {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://drh10j1ow8sqx"', 'path': '"res://.godot/imported/near.wav-4d9098974f00a3c0a874ab1ad83d8a17.sample"'}
+  over     {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://dt30rtniwsga0"', 'path': '"res://.godot/imported/over.wav-27f107ddafb3bf4c14dc9aa4e6dc8268.sample"'}
+  splash   {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://dt3wt6j0px1fr"', 'path': '"res://.godot/imported/splash.wav-5ec4fd8293fbd42c27becff16a2e488f.sample"'}
+  stage    {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://d1asy0sut3aqw"', 'path': '"res://.godot/imported/stage.wav-1fc25a89e98d87fc2281423d233b0140.sample"'}
+  train    {'importer': '"wav"', 'type': '"AudioStreamWAV"', 'uid': '"uid://dc6rtidvtvgov"', 'path': '"res://.godot/imported/train.wav-1dfd8c349fd09ae2d58dca108a860671.sample"'}
+
+################ .sample resource sizes ################
+  bgm      130199 bytes
+  click    687 bytes
+  crash    3527 bytes
+  gorani   2359 bytes
+  hop      1039 bytes
+  horn     2999 bytes
+  near     1655 bytes
+  over     8079 bytes
+  splash   3527 bytes
+  stage    3791 bytes
+  train    5935 bytes
+
+################ font imports ################
+  Galmuri11-Bold.ttf.import: '[remap]\n\nimporter="font_data_dynamic"\ntype="FontFile"\nuid="uid://c2bwuanr5a1tj"\npath="res://.godot/imported/Galmuri11-Bold.ttf-3a23d149e7b99ee54cc37134f38f9040.fontdata"\n\x00'
+  Galmuri11.ttf.import: '[remap]\n\nimporter="font_data_dynamic"\ntype="FontFile"\nuid="uid://b6id1g3t82k33"\npath="res://.godot/imported/Galmuri11.ttf-dc494bdf43221ea4068442166ca7b6a4.fontdata"\n\x00'
+  Galmuri9.ttf.import: '[remap]\n\nimporter="font_data_dynamic"\ntype="FontFile"\nuid="uid://yfxph3psqjt"\npath="res://.godot/imported/Galmuri9.ttf-98ce197f22f89047170858fe1b62fb4f.fontdata"\n\x00'

@@ -1,8 +1,11 @@
 extends RefCounted
 class_name ThemeDefs
-const ROWS_PER_STAGE:= 20
+
+
+const ROWS_PER_STAGE := 20
+
 static func stages() -> Array:
-	return [
+	return[
 		{
 			"name": "숲속 도로",
 			"grass": [Color("7ec850"), Color("74bd49")],
@@ -74,22 +77,34 @@ static func stages() -> Array:
 			"p_gorani": 0.07, "p_ambush": 0.08,
 		},
 	]
+
 static func theme_for_row(row: int) -> Dictionary:
-	var s:= stages()
-	var idx:= int(floor(float(row) / ROWS_PER_STAGE)) % s.size()
+	var s := stages()
+	var idx := int(floor(float(row) / ROWS_PER_STAGE)) % s.size()
 	return s[idx]
+
 static func stage_index(row: int) -> int:
 	return int(floor(float(row) / ROWS_PER_STAGE))
+
+
 static func difficulty(row: int) -> float:
 	return minf(1.0 + float(row) / 140.0, 2.2)
+
+
 static func loop_count(row: int) -> int:
-	return int(floor(float(row) /(ROWS_PER_STAGE * stages().size())))
+	return int(floor(float(row) / (ROWS_PER_STAGE * stages().size())))
+
+
 static func gorani_p(row: int, base: float) -> float:
-	return minf(base *(1.0 + 0.4 * loop_count(row)), 0.45)
+	return minf(base * (1.0 + 0.4 * loop_count(row)), 0.45)
+
+
 static func rush_lane_p(row: int) -> float:
-	var l:= loop_count(row)
+	var l := loop_count(row)
 	if l <= 0:
 		return 0.0
-	return minf(0.1 + 0.04 *(l - 1), 0.3)
+	return minf(0.1 + 0.04 * (l - 1), 0.3)
+
+
 static func ambush_p(row: int, base: float) -> float:
-	return minf(base *(1.0 + 0.25 * loop_count(row)), 0.5)
+	return minf(base * (1.0 + 0.25 * loop_count(row)), 0.5)
