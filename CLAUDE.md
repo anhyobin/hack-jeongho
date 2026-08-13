@@ -32,6 +32,11 @@ python3 tools/board_probe.py <wait_seconds> <score> [rows] [name] [char]
 # leaderboard: mint N tokens up front, retry one target score at escalating ages
 # (default ages 480,600,720 — stops at the first acceptance)
 python3 tools/submit_target.py <score> <name> [char] [ages] [rows]
+
+# gate watcher — read-only, never POSTs. Exit 1 means something changed:
+# a new index.pck (re-run the pipeline), seed gone from api/start (rollback),
+# or any newer board ts (someone got through, so it is not a global block).
+python3 tools/watch_gate.py [--baseline]
 ```
 
 `tools/` holds byte-identical copies of the three `_dl/` scripts — a change to one needs the same change to the other, or drop one copy.
@@ -58,6 +63,8 @@ Comments are **unrecoverable** (the tokenizer never stores them). Every statemen
 
 ## Leaderboard API and its server-side validation
 
+> **As of 2026-08-14 00:07, `POST api/scores` accepts nothing.** The operator patched the server between 08-13 22:23 and 23:55; `api/start` now also returns a `seed`, and every rejection collapsed into `{"ok": false, "error": "rejected"}` with `"hint": "stale"`. A real browser on the game page submitting `rows 60` at 62s (0.97 rows/s) gets the same rejection, and the deployed client is unchanged — so honest players cannot register either. **Do not spend POSTs while this holds**; nothing gets through, so there is no information to gain. Watch `curl -sI .../index.pck` for a `last-modified` change, then re-run the pipeline to read the new protocol out of `ranking.gd`. Everything below describes the pre-patch server (docs/leaderboard-api.md §6 has the ruled-out hypotheses).
+
 Contract (ranking.gd:69-108) — API base is derived from the page URL, so game and API are always same-origin:
 
 | endpoint | request | response |
@@ -79,19 +86,21 @@ Checks run in that order bottom-up: **throttle first, then token, then consisten
 
 One token buys exactly one attempt, so "submit and retry on rejection" needs a fresh token per try; that is why `submit_target.py` (and the older two-phase `submit_run.py`, kept as a record) mints them in bulk. A 429 is the exception — the throttle precedes token validation, so a throttled request does not spend its token and the same one can be retried after a backoff.
 
-**The rate check reads `rows`, not `score`** — the single most important thing to get right here, and the earlier score-based reading was wrong. `score 10001 / rows 5001` was accepted at 565.6s of token age: 17.68 **score**/s, which cannot be a score limit because 9.76 score/s (120 pts at 12.3s) was rejected. Read as rows, every one of the 13 observed submissions fits `rows <= elapsed * 9` with no exceptions; the proven window is `r ∈ [8.84, 9.76)` and a grace term is bounded at `g < 1.3s`, so treat it as a plain ratio. `r = 9` is the clean fit but remains 추정.
+**The rate check reads `rows`, not `score`** — the single most important thing to get right here, and the earlier score-based reading was wrong. `score 10001 / rows 5001` was accepted at 565.6s of token age: 17.68 **score**/s, which cannot be a score limit because 9.76 score/s (120 pts at 12.3s) was rejected. Read as rows, all 15 observed submissions fit `rows <= elapsed * 9.5` with no exceptions; the proven window is `r ∈ [9.487, 9.756)` and a grace term is bounded at `g < 1.3s`, so treat it as a plain ratio. `r = 9.5` is the only clean value in the window but remains 추정.
+
+**Third-party entries are first-class evidence now.** Since entries carry `elapsed`, any successful submission on the board is a data point as good as your own probe — `elapsed` is the very number the server judged against. `화이트해커30000` (`30000 / rows 14980`, `elapsed 1579.0` = 9.487 rows/s) is what raised the lower bound from 8.84 and **refuted the earlier `r = 9` fit**, which would have rejected it at 14211 rows. Read the board before probing; someone else may have already measured what you were about to spend a POST on. Exclude `admin_insert` rows — they never passed validation.
 
 So the two checks are independent, and the achievable ceiling is their composition:
 
 ```
-rate:        rows  <= elapsed * 9          (r in [8.84, 9.76), so 8.8 is the safe constant)
+rate:        rows  <= elapsed * 9.5        (r in [9.487, 9.756), so 9.4 is the safe constant)
 consistency: score <= rows * 2 + 40
-⇒ pick rows = 8.8 * elapsed  ⇒  score_max ≈ 17.6 * elapsed + 40
+⇒ pick rows = 9.4 * elapsed  ⇒  score_max ≈ 18.8 * elapsed + 40
 ```
 
 Consequence: **halving `rows` halves the wait.** `score == rows` is the safe-but-slowest choice and doubles the wait for a given score; `rows ≈ score/2` is what the rule actually costs. Satisfying the combined formula is not sufficient on its own — 120 pts at 12.3s sat under it yet was rejected, because `rows` was 120 where 12.3s only buys 110. Check both conditions separately.
 
-Tokens are known good to 565s of age; no absolute score cap exists below 10001. Entries submitted since 2026-08-13 ~13:00 carry an **`elapsed`** key (the token age the server itself measured — 565.6 against our 565.6), which is worth reading back instead of inferring the age. When quoting a rate from a scheduler log, check the age against the token's own mint time — a bulk-minting scheduler whose `t0` is the *last* mint understates the age of every earlier token.
+Tokens are known good to 1579s (26.3 min) of age; no absolute score cap exists below 30000, and `stage 749` stored fine — `ThemeDefs.stage_index()` (theme_defs.gd:86) has no clamp and `loop_count()` exists to count theme-list wraps, so unbounded stage is by design; the 500 clamp applies only to `?s=N`. Entries submitted since 2026-08-13 ~13:00 carry an **`elapsed`** key (the token age the server itself measured — 565.6 against our 565.6), which is worth reading back instead of inferring the age. When quoting a rate from a scheduler log, check the age against the token's own mint time — a bulk-minting scheduler whose `t0` is the *last* mint understates the age of every earlier token.
 
 Entries carrying `"admin_insert": true` (observed on `호호호 2500`) were inserted by the server operator outside the POST path — exclude them when reasoning about what validation accepts. The operator is actively editing this server (the `elapsed` key appeared mid-day 08-13), so a rule measured last session may no longer hold; re-derive from the newest data point when they disagree.
 
