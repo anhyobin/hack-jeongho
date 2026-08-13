@@ -52,7 +52,7 @@ Comments are **unrecoverable** (the tokenizer never stores them). Every statemen
 
 - **One scene.** `res://main.tscn` is a single `Node` with `main.gd` attached. Player, rows, vehicles, logs, trains, snow and all five screens (title/HUD/game-over/ranking/pause) are assembled imperatively at runtime via `Row.new()`, `Label.new()`, `ColorRect.new()`. 1,880 lines across 8 modules is the entire game — which is why decompiling the scripts recovered 100% of it.
 - **`main.gd` is the state machine and the service locator.** It owns `ranking`/`ui`/`sfx`/`game` and routes every transition. `UI` and `Game` never reference each other; they communicate through `main`.
-- **Scoring.** `score() = max_row - start_row + bonus`, `rows_crossed() = max_row - start_row` (game.gd:315-319). `bonus` only ever grows by `+= 2` (near-miss), so `score >= rows` holds on honest play — the invariant the server checks.
+- **Scoring.** `score() = max_row - start_row + bonus`, `rows_crossed() = max_row - start_row` (game.gd:315-319). `bonus` only ever grows by `+= 2` (near-miss) and a near-miss is only judged while the player occupies that row, so honest play satisfies `rows <= score <= rows * 2` — and the server's consistency check is the upper half of that, `score <= rows * 2 + 40`.
 - **`?s=N`** jumps to stage N (`start_row = clampi(N,0,500) * 20`) but cannot inflate score, because `start_row` is subtracted back out.
 - **Async discipline.** `Main._over_token` is a generation counter re-checked after every `await` so stale coroutines abandon quietly; `ui.gd` does the same with `cur[0] != want` for stale leaderboard responses. Keep that pattern if you patch either file.
 
@@ -70,8 +70,8 @@ The server has no published source; these rules were established by observation:
 
 | response | meaning |
 |---|---|
-| `403 {"error": "too_fast"}` | `score` too high for the token's age |
-| `403 {"error": "inconsistent"}` | `score > rows * 2` (2.0x passed, 10x rejected) |
+| `403 {"error": "too_fast"}` | **`rows`** too high for the token's age — not `score` |
+| `403 {"error": "inconsistent"}` | `score > rows * 2 + 40` |
 | `{"error": "token:reused"}` | token already spent — **a rejected attempt spends it too** |
 | `429 {"error": "too fast"}` — space, not underscore | per-IP submit throttle, easy to trip with concurrent POSTs |
 
@@ -79,12 +79,26 @@ Checks run in that order bottom-up: **throttle first, then token, then consisten
 
 One token buys exactly one attempt, so "submit and retry on rejection" needs a fresh token per try; that is why `submit_target.py` (and the older two-phase `submit_run.py`, kept as a record) mints them in bulk. A 429 is the exception — the throttle precedes token validation, so a throttled request does not spend its token and the same one can be retried after a backoff.
 
-Measured boundary: 100 pts at 12.5s of token age (8.0/s), 1004 pts at 150s (6.69/s) and 3000 pts at 490s (6.12/s) were **accepted**; 120 pts at 12.3s (9.75/s) was **rejected**. Fitting `score <= (elapsed + g) * r` to those points forces `g < 6.4s`, so the rule is near a plain ratio with `r` roughly in 6.4–9.75 pts/s. Treating 6.4/s as the safe rate is validated: 3000 pts landed on the **first** attempt at a scheduled 480s, 11s over what 6.4/s demands. Tokens are known good to 490s of age; no absolute score cap exists below 3000. When quoting a rate from a scheduler log, check the age against the token's own mint time — a bulk-minting scheduler whose `t0` is the *last* mint understates the age of every earlier token.
+**The rate check reads `rows`, not `score`** — the single most important thing to get right here, and the earlier score-based reading was wrong. `score 10001 / rows 5001` was accepted at 565.6s of token age: 17.68 **score**/s, which cannot be a score limit because 9.76 score/s (120 pts at 12.3s) was rejected. Read as rows, every one of the 13 observed submissions fits `rows <= elapsed * 9` with no exceptions; the proven window is `r ∈ [8.84, 9.76)` and a grace term is bounded at `g < 1.3s`, so treat it as a plain ratio. `r = 9` is the clean fit but remains 추정.
 
-Entries carrying `"admin_insert": true` (observed on `호호호 2500`) were inserted by the server operator outside the POST path — exclude them when reasoning about what validation accepts.
+So the two checks are independent, and the achievable ceiling is their composition:
 
-Two facts make the boundary cheap to search: a rejection **creates no leaderboard entry**, and nothing binds a token to a browser session — tokens can be minted in bulk up front and aged in parallel. So escalating token age against a fixed target score costs only wall-clock, and the first acceptance is the desired result. Submit with `score == rows` unless you have a reason not to; `score <= rows * 2` is the measured allowance, and the server stores `stage = floor(rows/20)` (0-based, not the 1-based number the in-game banner shows). Space POSTs ≥60s apart to stay clear of the 429 limiter.
+```
+rate:        rows  <= elapsed * 9          (r in [8.84, 9.76), so 8.8 is the safe constant)
+consistency: score <= rows * 2 + 40
+⇒ pick rows = 8.8 * elapsed  ⇒  score_max ≈ 17.6 * elapsed + 40
+```
+
+Consequence: **halving `rows` halves the wait.** `score == rows` is the safe-but-slowest choice and doubles the wait for a given score; `rows ≈ score/2` is what the rule actually costs. Satisfying the combined formula is not sufficient on its own — 120 pts at 12.3s sat under it yet was rejected, because `rows` was 120 where 12.3s only buys 110. Check both conditions separately.
+
+Tokens are known good to 565s of age; no absolute score cap exists below 10001. Entries submitted since 2026-08-13 ~13:00 carry an **`elapsed`** key (the token age the server itself measured — 565.6 against our 565.6), which is worth reading back instead of inferring the age. When quoting a rate from a scheduler log, check the age against the token's own mint time — a bulk-minting scheduler whose `t0` is the *last* mint understates the age of every earlier token.
+
+Entries carrying `"admin_insert": true` (observed on `호호호 2500`) were inserted by the server operator outside the POST path — exclude them when reasoning about what validation accepts. The operator is actively editing this server (the `elapsed` key appeared mid-day 08-13), so a rule measured last session may no longer hold; re-derive from the newest data point when they disagree.
+
+Two facts make the boundary cheap to search: a rejection **creates no leaderboard entry**, and nothing binds a token to a browser session — tokens can be minted in bulk up front and aged in parallel. So escalating token age against a fixed target score costs only wall-clock, and the first acceptance is the desired result. Set `rows` from the target: `rows = ceil((score - 40) / 2)` is the cheapest legal value and `rows = ceil(score / 2)` keeps a margin without meaningfully raising the wait. The server stores `stage = floor(rows/20)` (0-based, not the 1-based number the in-game banner shows), so a low `rows` also lands a *lower* stage than the score suggests — which is what makes an inflated entry blend in. Space POSTs ≥60s apart to stay clear of the 429 limiter.
 
 ## Working against the live target
 
-Every request here hits a service someone else runs — a single-threaded Python process, with `/api/*` set to `no-cache` so nothing is absorbed by the CDN edge. Keep request volume low and serialized. There is **no delete endpoint**: a submitted score cannot be withdrawn, so treat each POST as permanent and submit the minimum needed.
+Every request here hits a service someone else runs — a single-threaded Python process, with `/api/*` set to `no-cache` so nothing is absorbed by the CDN edge. Keep request volume low and serialized. There is **no delete endpoint** in the public API: a submitted score cannot be withdrawn, so treat each POST as permanent and submit the minimum needed.
+
+**A single `GET api/scores` is not proof the board changed.** On 08-13 the endpoint returned the same list shifted past its top 11 entries for ~2 minutes and then reverted — it read exactly like a purge of every score above 640. Before concluding an entry was removed, diff the response against a saved snapshot: if the overlap matches record-for-record at an offset, nothing was deleted. Re-poll before acting, and never let one reading trigger a resubmission.
