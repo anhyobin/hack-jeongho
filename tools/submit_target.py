@@ -27,7 +27,7 @@ from typing import Any
 BASE = "https://d15csla760jzen.cloudfront.net/"
 
 RATE_LIMIT_BACKOFF = 60.0
-RETRYABLE = ("too fast", "too_fast")
+RETRYABLE = ("too fast", "too_fast", "rejected")  # 08-14부터 rejected가 점수 거부의 이름이다
 TOKEN_MINT_GAP = 5.0
 
 
@@ -35,15 +35,41 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def get_token() -> str:
-    r = urllib.request.urlopen(BASE + "api/start", timeout=15)
-    return json.load(r)["token"]
+def godot_json(payload: dict[str, Any]) -> str:
+    """Serialize exactly the way the game's `JSON.stringify` does.
+
+    Godot sorts keys (`sort_keys` defaults to true) and emits no whitespace
+    around `:` or `,`.  Since 2026-08-14 the server fingerprints this: a body
+    with Python's default insertion order and `", "` / `": "` separators is
+    answered `403 {"error": "rejected", "hint": "stale"}` no matter how valid
+    the score is, while the byte-for-byte Godot form passes.  Do not "clean up"
+    this function — the separators and the sort are the whole point.
+    """
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False)
+
+
+def get_token(retries: int = 5) -> str:
+    """Mint one token, backing off around the `too many starts` IP limiter."""
+    for i in range(retries):
+        try:
+            payload = json.load(urllib.request.urlopen(BASE + "api/start",
+                                                       timeout=15))
+        except urllib.error.HTTPError as e:
+            payload = {"error": f"http {e.code}"}
+        tok = payload.get("token") if isinstance(payload, dict) else None
+        if tok:
+            return str(tok)
+        wait = TOKEN_MINT_GAP * (i + 2)
+        log(f"  api/start 거부 ({payload}) — {wait:.0f}초 후 재시도")
+        time.sleep(wait)
+    raise RuntimeError("api/start가 토큰을 주지 않는다 (too many starts 지속)")
 
 
 def submit(token: str, name: str, score: int, rows: int,
            char: str) -> tuple[int, dict[str, Any]]:
-    body = json.dumps({"name": name, "score": score, "rows": rows,
-                       "char": char, "token": token}).encode()
+    body = godot_json({"name": name, "score": score, "rows": rows,
+                       "char": char, "token": token}).encode("utf-8")
     req = urllib.request.Request(BASE + "api/scores", data=body,
                                  headers={"Content-Type": "application/json"},
                                  method="POST")
