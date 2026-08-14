@@ -12,3 +12,6 @@ tools/.gate_baseline.json
 # 패치된 pck는 재생성물이다 (tools/pack.py + patch/*.gd). 원본 백업도 커밋하지 않는다.
 _local/index.241563a7.pck
 _local/index.orig.pck
+
+# 병렬 세션용 워크트리
+.worktrees/
