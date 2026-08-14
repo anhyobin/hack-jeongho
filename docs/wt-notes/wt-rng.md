@@ -174,4 +174,168 @@ COMMON의 금지 목록도 그대로 적용된다.
 
 ## 작업 기록
 
-<!-- 세션이 채운다. 공유 문서(docs/leaderboard-api.md 등)에 쓰지 마라 — 100% 충돌한다. -->
+**뚫렸다.** 알고리즘은 PCG32가 맞았지만 **시딩만 다른 것이 아니었다.** 틀린 것이 셋이고,
+막힘의 진짜 원인은 시딩이 아니라 `randf()`였다. 아래 근거는 전부 추측이 아니라
+`godotengine/godot` **`4.7.1-stable` 태그의 원본**이다.
+
+### 1. 알고리즘 판정 — wasm 상수 (완료 조건 1)
+
+```
+PCG_MULT   (6364136223846793005)  LEB128 143건, LE64 0건   ★
+PCG_INC    (1442695040888963407)  LEB128   6건, LE64 1건   ★
+PCG_STREAM / XOSHIRO_A / SPLITMIX / MURMUR      전부 0건
+```
+
+→ **PCG32 계열이 맞다.** 그래서 남은 문제는 시딩과 출력 함수뿐이고, 실제로 둘 다 달랐다.
+`tools/rng_probe.py` 1단계가 이 스캔이다.
+
+### 2. 시드→상태 함수 (완료 조건 5)
+
+`RandomPCG::seed()`는 `pcg.state = p_seed`가 **아니다.** `pcg32_srandom_r(&pcg, seed, current_inc)`를
+부르고, `current_inc`는 `RandomNumberGenerator`의 기본값 `PCG_DEFAULT_INC_64`다.
+
+```
+INC2   = (1442695040888963407 << 1) | 1 = 0x280AF6FDEECF029F   ← inc 레지스터 값
+state0 = ((INC2 + seed) * 6364136223846793005 + INC2) mod 2^64
+```
+
+`pcg32_srandom_r`이 state=0에서 한 번 전진(→ state=INC2)하고, 시드를 **더한 뒤**, 다시 한 번
+전진하기 때문이다. 그래서 `seed 0`의 초기 상태가 `0x8C63D050560A5992`
+(10116158231463745938)이고 첫 `randf()`가 0.0이 아니다 — 지시서가 지목한 그 단서다.
+
+### 3. ★ 진짜 원인 — `randf()`가 `rand()`를 **두 번** 먹는다
+
+```c
+proto = rand();  if (proto == 0) return 0;
+return ldexp((float)(rand() | 0x80000001), -32 - clz32(proto));
+```
+
+`rand() / 0xFFFFFFFF`가 아니다. **난수 소비 개수가 2배로 다르다.** 그래서 시딩을 정확히
+맞춰도 두 번째 값부터 전부 어긋난다. 지시서의 "배제한 것" 목록에 `pcg32_srandom_r(seed, inc)`와
+`inc<<1|1`이 이미 있었지만 그 판정을 **틀린 randf로** 했기 때문에 통과할 수가 없었다.
+`tools/rng_probe.py` 3단계가 시딩 7종 × randf 3종 격자를 전부 돌린다 — 21칸 중 통과는
+`(srandom(inc<<1|1), ldexp)` **한 칸**뿐이다. 이 표가 "무엇이 아니었는지"의 정본이다.
+
+### 4. `randi_range`는 기각 표본이다
+
+`pcg32_boundedrand_r`: `threshold = -n % n`, `r < threshold`면 **버리고 다시 뽑는다.**
+`rand() % n`이 아니다. n이 2의 거듭제곱이면 같지만 **9·7·6·5·3에서 갈라지고**, 풀밭의
+Fisher-Yates가 `randi_range(0, i)`(i=8..1)로 정확히 그 경우를 쓴다.
+
+### 5. ★★ `recovered/` 는 낡았다 — 통합이 반드시 알아야 할 것
+
+`recovered/*.gd` ≠ `_dl/extracted/scripts/*.decompiled.gd`. CLAUDE.md는 둘이 바이트
+동일이라고 하지만 **지금은 아니다. 현행 게임은 `_dl/extracted/` 쪽이다.**
+(`tools/make_bot_patch.py`는 이미 `_dl/extracted/`를 읽으므로 빌드는 영향 없다.)
+
+차이가 이 태스크의 성패를 갈랐다. 현행 빌드는 운영자가 **재현 가능하게** 고친 버전이다:
+
+- `rng.seed = main.ranking.active_seed` — 낡은 쪽은 `rng.randomize()`라 시드와 무관했다
+- `FIXED_DT = 1/60` 고정 틱 루프 + `tick_count`/`input_trace`/`replay_mode`
+- 화면 흔들림이 `vrng`(별도 인스턴스)로 분리돼 월드 rng를 오염시키지 않는다
+- `_update_snow`가 `_sim_tick` **밖으로** 나갔다 — 프레임 시간 의존이 시뮬레이션에서 빠졌다
+- ★ `cols_pool.shuffle()`이 `rng.randi_range(0, i)` Fisher-Yates로 **교체됐다**
+
+마지막 항목이 특히 중요하다. `Array.shuffle()`은 Godot의 **전역** RNG(`Math::rand()`)를 쓰므로
+시드로 재현할 수 없다. 낡은 `recovered/`만 보면 "오프라인 재현은 원리적으로 불가능"이라는
+**잘못된 결론**에 이른다. 현행 빌드에서 전역 RNG 소비자는 눈(snow)과 효과음 피치뿐이고 둘 다
+시뮬레이션 밖이다. 그래서 **월드는 시드만의 함수다.**
+
+### 6. `sim.py`에서 고친 것 — RandomPCG 외 2건 (둘 다 재현을 깨뜨리는 버그였다)
+
+1. `_build_river`에 **물결 장식 루프가 빠져 있었다** (`row.gd:215`: `randi_range(2,4)` +
+   회당 `randf_range` 2개). 난수 소모 순서가 강 행부터 어긋난다.
+2. `replay()`가 trace 입력을 **한 틱 일찍** 넣었다. 엔진은 `_consume_input`에서
+   `tick_count`가 **증가한 뒤**의 값으로 판정한다(`_next_input`). 이 한 틱 때문에 첫 검증이
+   rows 40 대신 **24**로 나왔다. `_next_input()`을 그대로 옮겨 해결했다.
+
+### 7. 검증 (완료 조건 2·3)
+
+```
+python3 tools/rng_probe.py            → 정답지 6개 시드 randf 전건 + randi_range 일치, exit 0
+python3 tools/sim.py /tmp/valcases.jsonl → 6/6 일치, exit 0
+python3 tools/pack.py --verify        → 바이트 동일 ✓
+콘솔 Parse Error / SCRIPT ERROR       → 0건
+```
+
+`[rowdbg]` 대조로 초기 21행(-6..14)의 `kind/blocked/lane_dir/lane_speed/spawn_t/rail_t/
+entities/ambush/pending_dir`이 **전부** 일치하는 것을 먼저 확인했고, 그 뒤 주행 재현이 맞았다.
+정답지 6건은 **사망 틱까지 정확히** 일치한다(2881·2039·3401·3340·4387·2677) — 사망 틱이 맞으면
+그 앞의 모든 틱이 맞은 것이다. 그래서 `sim.py`의 판정 조건에 `ticks`를 넣었다.
+사인도 scroll/train/gorani/car 4종이 모두 들어갔고, 니어미스 보너스가 붙은 건(150=144+6,
+152=150+2)도 포함이라 보너스 경로까지 검증됐다.
+
+**변이 검증**도 했다: `_build_grass`의 장식 `randf_range` 하나를 지우면 6건 전부 rows 3에서
+어긋나고, 되돌리면 6/6으로 복귀한다. 우연히 맞은 것이 아니다.
+
+### 8. `tools/solve.py` — 탐색
+
+`replay()`가 정확해졌으므로 경로 찾기는 순수 계산이다. 행동 단위는 복합이다:
+`("move", 방향)`은 착지까지, `("wait", k)`는 k틱. 위험 판정은 **시뮬레이터 자신**에게
+맡긴다(상태를 복제해 실제로 굴려 본다) — 별도 예측식이 본 시뮬레이션과 어긋날 여지를 없앤다.
+
+**결과: 600점을 오프라인에서 합성했고, 그 trace를 엔진이 채점해 600점을 확인했다.**
+
+```
+python3 tools/solve.py <시드> --target 600 --width 8          (기본 mode=beam)
+
+시드 1000000919842726 → score 600 rows 570 bonus 30 ticks 7914 trace 590개  261초
+시드 1000000919874402 → score 600 rows 584 bonus 16 ticks 6897 trace 595개  274초
+```
+
+둘 다 `verify.ok = true`(만든 trace를 `sim.replay()`에 다시 먹여 자체 검산). 정체 구간 없이
+**단계당 약 1행**으로 진행한다(deepcopy 0.305ms, sim_tick 0.0108ms 실측).
+
+여기까지 오는 데 탐색 쪽에서 함정이 둘 있었고, 둘 다 **정체의 원인이 게임 난이도가 아니라
+탐색 버그**였다:
+
+1. **`--mode dfs`는 프런티어에 갇힌다.** 막힌 행에서 12^k 부분나무를 다 뒤지느라 위로
+   못 올라간다 — 359행에서 6분 넘게 정체하며 노드 37만 개를 태웠다. 체크포인트를 동시에
+   여러 개 살리는 빔으로 바꾸니 같은 행을 정체 없이 지났다. `--mode dfs`는 비교용으로 남겼다.
+2. ★ **막힌 이동(bump)을 후보로 두면 안 된다.** `player.bump()`는 시계만 1틱 흘리고 아무
+   상태도 바꾸지 않으므로 `("wait", 1)`과 **같다.** 그런데 "가장 싼 행동"이라서 동점
+   정렬(`-cam_slack`, 즉 시간을 덜 쓴 쪽)에서 항상 이긴다. 그래서 8행의 4·5열이 막힌
+   국면에서 **4열에 선 채로 전진만 무한 반복**했다 — 9틱을 쓰는 좌/우 이동(막힌 열을
+   벗어나는 유일한 수)이 1틱짜리 bump에 계속 밀린 것이다. `do_move`가 bump를 False로
+   보고하고 후보에서 빼자 즉시 풀렸다(7행 영구 정체 → 60초에 137행).
+
+빔의 확장 단위는 **행 단위 복합 행동**이다: `k틱 대기 후 이동`(k는 0~254틱, 6틱 격자).
+행동을 하나씩 확장하면 빔 24칸이 전부 "같은 자리에서 2~3틱씩 다르게 기다린 상태"로 채워져
+**다양성이 붕괴**하고 시간이 한 단계에 2틱씩만 흐른다(실측). 대기를 확장 안으로 넣으면
+한 번의 확장이 타이밍 공간을 다 덮으므로 그 함정이 사라진다.
+
+### 8.1 ★ 엔진 교차 검증 — 합성 trace를 엔진이 600점으로 채점했다
+
+`sim.py`가 클라이언트와 일치한다는 것과 **합성한 trace가 엔진에서 정말 600점이 된다**는 것은
+다른 주장이다. 후자를 실제로 확인했다. `game.gd`에 이미 있는 `replay_mode`/`replay_inputs`에
+trace를 먹이는 훅을 `patch/bot_game.part.gd`에 **로컬 전용으로** 넣고(`brep=1`,
+`_local/trace.json`을 동기 XHR로 읽는다) 돌린 뒤 `git checkout`으로 되돌렸다 — 커밋에 없다.
+
+```
+우리 예측(sim.replay) : rows 590  score 600  bonus 10  ticks 7259  cause car  consumed 631
+엔진 [run] 실측        : rows 590  score 600  bonus 10  ticks 7259  row 590
+```
+
+**사망 틱(7259)과 사인(car)까지 전부 일치한다.** trace가 끝난 뒤 입력이 없어 차에 치이는
+것까지 같다. 이 훅은 원래 `patch/bot_main.part.gd`(= `wt/search` 소유) 자리이므로
+통합 때 그쪽에 넣으면 상시 검증 수단이 된다.
+
+정확히 말해 두면, 엔진에 먹인 trace는 **bump 수정 전** 빔이 만든 것이다(rows 590). 그 뒤
+`solve.py`는 바뀌었지만 `sim.py`는 바뀌지 않았고, `trace → 점수`를 계산하는 것은 `sim.py`다.
+즉 이 실험이 보증하는 것은 **`sim.py`의 재현이 600점 규모에서도 엔진과 정확히 일치한다**는
+것이고, 그것이 무게를 지는 주장이다. 수정 후 solve.py가 낸 두 trace는 `sim.replay()`로
+자체 검산만 했다(엔진 재확인은 하지 않았다) — 제출 전에는 §8.1 훅으로 한 번 더 돌려라.
+
+### 9. 남은 것 / 통합이 알아야 할 것
+
+- **제출용 trace를 엔진으로 확인하는 배관이 아직 없다.** `game.gd`에 `replay_mode`/
+  `replay_inputs`가 이미 있으니 URL로 trace를 먹이는 훅 하나면 되는데, 그 자리는
+  `patch/bot_main.part.gd`(= `wt/search` 소유)다. 그래서 손대지 않았다. 그 배관이 생기면
+  `?bseed=<시드>` + trace로 같은 점수가 나오는지 한 번에 확인할 수 있다.
+- 서버는 자기 재현으로 `rows`·`score`를 다시 계산한다. 우리 재현이 클라이언트와 **틱 단위로**
+  일치하므로 서버와도 일치할 것으로 보지만 **실측되지 않았다(추정).** 그래서 이 세션은
+  **제출하지 않았다** — 제출은 사용자 확인을 받아야 한다.
+- 제출 시 `rows <= elapsed * 9.5`를 지켜야 한다. 600점(약 590행)이면 토큰 나이 **63초 이상**이
+  필요하다. 오프라인 합성은 주행 시간이 들지 않으니 시드를 받고 그냥 기다리면 된다.
+- `sim.py`는 `REAL_IS_DOUBLE = False`(웹 = real_t float)를 전제한다. 배정밀도 빌드를 만나면
+  True로 두면 `randd`(rand 3회) 경로를 탄다.

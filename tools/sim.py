@@ -28,13 +28,31 @@ import struct
 import sys
 
 # --- Godot RandomPCG (core/math/random_pcg.h + thirdparty/misc/pcg.cpp) ------
+#
+# 4.7.1-stable 원본을 그대로 옮긴 것이다. 앞선 세션이 막힌 지점이 전부 여기였고,
+# 틀렸던 것이 셋이다 (`docs/wt-notes/wt-rng.md` 작업 기록):
+#
+#   1. `rng.seed = N`은 `state = N`이 **아니다**. `RandomPCG::seed()`는
+#      `pcg32_srandom_r(&pcg, N, current_inc)`를 부른다 — state를 0으로 두고
+#      inc를 `(current_inc << 1) | 1`로 세운 뒤 **두 번 전진**하며, 그 사이에
+#      시드를 state에 더한다. 그래서 seed 0도 0이 아닌 상태에서 시작한다.
+#   2. `randf()`는 `rand() / 0xFFFFFFFF`가 **아니다**. `rand()`를 **두 번** 쓴다 —
+#      첫 값의 선행 0 개수로 지수를, 둘째 값으로 유효숫자를 만든다(ldexp).
+#      난수 하나가 아니라 둘을 먹으므로, 이걸 틀리면 시딩을 맞춰도 전부 어긋난다.
+#   3. `randi_range`는 `rand() % n`이 **아니다**. `pcg32_boundedrand_r`의
+#      기각 표본(threshold = -n % n)이다. n이 2의 거듭제곱이면 같지만
+#      9·7·6·5·3에서 갈라진다 — 풀밭의 Fisher-Yates가 정확히 그 경우다.
 
 MASK64 = (1 << 64) - 1
 PCG_MULT = 6364136223846793005
 PCG_DEFAULT_INC_64 = 1442695040888963407
 UINT32_MAX = 0xFFFFFFFF
+DEFAULT_SEED = 12047754176567800795
 
-REAL_IS_DOUBLE = False   # 웹 빌드 기본은 real_t = float. 검증에서 틀리면 True로 바꿔 본다
+# 웹 내보내기는 real_t = float이다. `randf_range`가 float 경로(randf, rand 2회)를
+# 타는 근거이고, 정답지 6개가 이 가정에서 전건 일치한다. True로 두면 randd
+# 경로(rand 3회)를 쓴다 — 배정밀도 빌드를 만났을 때만 의미가 있다.
+REAL_IS_DOUBLE = False
 
 
 def f32(x: float) -> float:
@@ -42,36 +60,73 @@ def f32(x: float) -> float:
 
 
 class RandomPCG:
-    """`rng.seed = N`은 `pcg.state = N`이고 `inc`는 기본값 그대로다."""
+    """Godot 4.7.1 `RandomNumberGenerator`. 시드→상태는 `pcg32_srandom_r`이다."""
 
-    def __init__(self, seed: int = 0):
-        self.state = seed & MASK64
-        self.inc = PCG_DEFAULT_INC_64
+    __slots__ = ("state", "inc", "current_seed", "current_inc")
+
+    def __init__(self, seed: int = DEFAULT_SEED, inc: int = PCG_DEFAULT_INC_64):
+        self.current_inc = inc & MASK64
+        self.set_seed(seed)
+
+    def set_seed(self, p_seed: int) -> None:
+        # RandomPCG::seed() -> pcg32_srandom_r(&pcg, current_seed, current_inc)
+        self.current_seed = p_seed & MASK64
+        self.state = 0
+        self.inc = ((self.current_inc << 1) | 1) & MASK64
+        self.rand()
+        self.state = (self.state + self.current_seed) & MASK64
+        self.rand()
 
     def rand(self) -> int:
+        # pcg32_random_r — Godot 판은 전진식에서 `inc | 1`을 쓴다(inc는 이미 홀수다)
         old = self.state
-        self.state = (old * PCG_MULT + self.inc) & MASK64
+        self.state = (old * PCG_MULT + (self.inc | 1)) & MASK64
         xorshifted = (((old >> 18) ^ old) >> 27) & UINT32_MAX
         rot = (old >> 59) & 31
         return ((xorshifted >> rot) | (xorshifted << ((-rot) & 31))) & UINT32_MAX
 
+    def rand_bounded(self, bounds: int) -> int:
+        # pcg32_boundedrand_r — 기각 표본이므로 난수를 2회 이상 먹을 수 있다
+        threshold = (-bounds & UINT32_MAX) % bounds
+        while True:
+            r = self.rand()
+            if r >= threshold:
+                return r % bounds
+
     def randf(self) -> float:
         if REAL_IS_DOUBLE:
-            return self.rand() / float(UINT32_MAX)
-        return f32(f32(self.rand()) / f32(UINT32_MAX))
+            return self.randd()
+        proto = self.rand()
+        if proto == 0:
+            return 0.0
+        clz = 32 - proto.bit_length()           # __builtin_clz
+        return math.ldexp(f32(self.rand() | 0x80000001), -32 - clz)
+
+    def randd(self) -> float:
+        proto = self.rand()
+        if proto == 0:
+            return 0.0
+        clz = 32 - proto.bit_length()
+        hi = self.rand()
+        lo = self.rand()
+        return math.ldexp(float((hi << 32) | lo | 0x8000000000000001), -64 - clz)
 
     def randf_range(self, a: float, b: float) -> float:
         # RandomNumberGenerator::randf_range -> RandomPCG::random(real_t, real_t)
-        #   randf() * (to - from) + from
+        #   randf() * (to - from) + from — 인자는 호출 시 real_t로 내려간다
         if REAL_IS_DOUBLE:
-            return self.randf() * (b - a) + a
+            return self.randd() * (b - a) + a
         return f32(f32(self.randf() * f32(f32(b) - f32(a))) + f32(a))
 
     def randi_range(self, a: int, b: int) -> int:
-        r = self.rand()
-        if b < a:
-            return r % (a - b + 1) + b
-        return r % (b - a + 1) + a
+        # RandomPCG::random(int, int)
+        if a == b:
+            return a                      # ★ 난수를 **소모하지 않는다**
+        lo, hi = (a, b) if a < b else (b, a)
+        diff = hi - lo
+        if diff == UINT32_MAX:
+            return self.rand() + lo
+        return self.rand_bounded(diff + 1) + lo
 
 
 # --- 상수와 테마 (game.gd / row.gd / theme_defs.gd) --------------------------
@@ -238,6 +293,9 @@ class Row:
 
     def _build_river(self) -> None:
         rng = self.rng
+        for _ in range(rng.randi_range(2, 4)):        # 물결 장식 (row.gd:215)
+            rng.randf_range(-60, 660)
+            rng.randf_range(-CELL + 10, -12)
         self.lane_dir = 1 if rng.randf() < 0.5 else -1
         self.lane_speed = rng.randf_range(42.0, 80.0) * math.sqrt(self.diff)
         w = TEXW["floe" if self.theme["snow"] else "log"]
@@ -419,6 +477,9 @@ class Game:
         self.hop_end_tick = -1
         self.pending_input = (0, 0)
         self.input_trace = []
+        self.replay_mode = False
+        self.replay_inputs = []
+        self.replay_idx = 0
         self.cause = ""
         self.player = Player()
         self._setup()
@@ -505,12 +566,25 @@ class Game:
             return
         self.pending_input = dir_
 
+    def _next_input(self) -> tuple:
+        # game.gd:_next_input — ★ 재생 판정은 `tick_count`가 **증가한 뒤**의 값으로 한다.
+        # 이 한 틱이 어긋나면 홉 타이밍이 통째로 밀려 재현이 전혀 맞지 않는다.
+        if self.replay_mode:
+            if (self.replay_idx < len(self.replay_inputs)
+                    and int(self.replay_inputs[self.replay_idx][0]) == self.tick_count):
+                d = DIRS[int(self.replay_inputs[self.replay_idx][1])]
+                self.replay_idx += 1
+                return tuple(d)
+            return (0, 0)
+        d = self.pending_input
+        self.pending_input = (0, 0)
+        return d
+
     def _consume_input(self) -> None:
         p = self.player
         if p.hopping or p.dead or self.state != "play":
             return
-        d = self.pending_input
-        self.pending_input = (0, 0)
+        d = self._next_input()
         if d != (0, 0):
             self._apply_move(d)
 
@@ -535,7 +609,8 @@ class Game:
         target = self.rows.get(to_row)
         if target is not None and target.kind == KIND_GRASS and target.is_blocked(self.col_of(to_x)):
             return                                    # bump
-        self.input_trace.append([self.tick_count, _dircode(d)])
+        if not self.replay_mode:
+            self.input_trace.append([self.tick_count, _dircode(d)])
         self.hop_end_tick = self.tick_count + HOP_TICKS
         p.hopping = True
         p.riding = None
@@ -643,14 +718,13 @@ def _dircode(d: tuple) -> int:
 def replay(seed: int, trace, ticks: int, start_row: int = 0) -> dict:
     """trace를 그대로 재생한다 (`game.gd`의 replay_mode와 같은 규약)."""
     g = Game(seed, start_row)
-    idx = 0
-    while g.state == "play" and g.tick_count < ticks + 600:
-        if idx < len(trace) and int(trace[idx][0]) == g.tick_count:
-            g.try_move(tuple(DIRS[int(trace[idx][1])]))
-            idx += 1
+    g.replay_mode = True
+    g.replay_inputs = list(trace)
+    limit = max(int(ticks) + 600, 600)
+    while g.state == "play" and g.tick_count < limit:
         g.sim_tick()
     return {"rows": g.rows_crossed(), "score": g.score(), "bonus": g.bonus,
-            "ticks": g.tick_count, "cause": g.cause, "consumed": idx,
+            "ticks": g.tick_count, "cause": g.cause, "consumed": g.replay_idx,
             "row": g.player.row}
 
 
@@ -665,8 +739,10 @@ def main() -> None:
         c = json.loads(line)
         total += 1
         r = replay(int(c["seed"]), c["trace"], int(c["ticks"]))
+        # ticks까지 같아야 통과다 — 사망 틱이 맞으면 그 앞의 모든 틱이 맞은 것이다
         match = (r["rows"] == c["rows"] and r["score"] == c["score"]
-                 and r["consumed"] == len(c["trace"]))
+                 and r["consumed"] == len(c["trace"])
+                 and r["ticks"] == int(c["ticks"]))
         ok += 1 if match else 0
         print(f"{'OK ' if match else '불일치'} seed={c['seed']} "
               f"기대 rows={c['rows']} score={c['score']} ticks={c['ticks']} trace={len(c['trace'])} "
