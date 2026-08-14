@@ -15,3 +15,4 @@ _local/index.orig.pck
 
 # 병렬 세션용 워크트리
 .worktrees/
+

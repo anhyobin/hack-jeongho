@@ -63,6 +63,39 @@ func _bot_setup() -> void:
 	bot_start_t = brng.randi_range(55, 150)
 	bot_gap = brng.randi_range(8, 9)
 	print("[bot] 사람 타이밍: 첫 입력 %d틱, 홉 간격 %d틱" % [bot_start_t, bot_gap])
+	var dq = _bot_qs("bdump")
+	if dq != null and str(dq) == "1":
+		# **포팅 검증용.** 월드의 `rng`를 건드리지 않도록 별도 인스턴스를 쓴다.
+		# 이러면 PCG32 재현(난수열)과 소모 순서(행 데이터)를 따로 검증할 수 있다.
+		var dbg := RandomNumberGenerator.new()
+		dbg.seed = main.ranking.active_seed
+		var line := ""
+		for i in 12:
+			line += "%.9f " % dbg.randf()
+		print("[rngdbg] seed=%d randf: %s" % [main.ranking.active_seed, line])
+		var dbg2 := RandomNumberGenerator.new()
+		dbg2.seed = main.ranking.active_seed
+		var l2 := ""
+		for i in 8:
+			l2 += "%d " % dbg2.randi_range(3, 6)
+		print("[rngdbg] randi_range(3,6): %s" % l2)
+		# seed -> 첫 난수 대응을 직접 측정한다. state = seed 라면 seed 0은 0.0이 나온다.
+		for sd in[0, 1, 2, 3, 255, 1000000919463405]:
+			var d3 := RandomNumberGenerator.new()
+			d3.seed = sd
+			print("[seedmap] %d -> %.9f %.9f %d" % [sd, d3.randf(), d3.randf(),
+					RandomNumberGenerator.new().randi()])
+		for i in range(-6, 16):
+			var r = rows.get(i)
+			if r == null:
+				continue
+			var b := []
+			for c in range(COLS):
+				if r.is_blocked(c):
+					b.append(c)
+			print("[rowdbg] %d kind=%d blocked=%s dir=%d spd=%.4f spawn=%.4f railt=%.4f ent=%d ambush=%s pdir=%d" % [
+					i, r.kind, str(b), r.lane_dir, r.lane_speed, r.spawn_t, r.rail_t,
+					r.entities.size(), str(r.ambush_armed), r.pending_dir])
 	print("[bot] target=%d name=%s submit=%s seed=%d token=%s" % [bot_target, bot_name,
 			str(bot_submit), main.ranking.active_seed, main.ranking.active_token.substr(0, 12)])
 
@@ -253,8 +286,10 @@ func _bot_hit_tick(idx: int, px: float, k0: int, kmax: int) -> int:
 #  35~95행마다 죽었다 — 차에 치이거나, 통나무에 밀려 익사하거나, 스크롤에 깔렸다.)
 
 const BOT_MAX_SEG := 9    # 한 번에 계획하는 최대 구간 길이(행)
+const BOT_LOOKAHEAD := 12 # 열의 전방 통행 거리를 볼 범위(행)
+const BOT_MAX_WAIT := 70  # 구간 안에서 한 행에 머물 수 있는 최대 대기(틱)
 
-var bot_cross := 0        # 남은 연속 전진 횟수 (계획 실행 중)
+var bot_hops: Array = []  # 실행 중인 계획의 남은 홉 시각(절대 틱)
 var bot_stuck := 0        # 계획이 서지 않은 연속 틱
 var bot_br := 0           # 마지막 판단 분기 (진단용)
 var bot_prog_row := -99999  # 마지막으로 전진한 행
@@ -307,6 +342,20 @@ func _bot_move_target(dir: Vector2i) -> Dictionary:
 		return { "ok": false}
 	return { "ok": true, "row": to_row, "x": to_x}
 
+func _bot_col_reach(from_row: int, col: int) -> int:
+	# from_row 다음 행부터 **나무에 막히지 않고 지날 수 있는 연속 행수**.
+	# `blocked`는 생성 시 고정이라 시간과 무관하고 계산이 싸다. 봇의 사망 1순위가
+	# "이 열로는 앞으로 갈 수 없는데 좌우도 막힌" 함정이므로, 열 선택의 기준이 된다.
+	var n := 0
+	for m in range(1, BOT_LOOKAHEAD + 1):
+		var r = rows.get(from_row + m)
+		if r == null:
+			break
+		if r.kind == Row.KIND_GRASS and r.is_blocked(col):
+			break
+		n += 1
+	return n
+
 func _bot_seg_end(x: float) -> int:
 	# x 열로 전진할 때 **멈춰도 되는 첫 앞 행**까지의 거리. 0이면 이 열로는 못 나간다.
 	for m in range(1, BOT_MAX_SEG + 1):
@@ -320,16 +369,23 @@ func _bot_seg_end(x: float) -> int:
 	return 0
 
 func _bot_col_dir() -> int:
-	# **구간 전체를 통과할 수 있는** 가장 가까운 열의 방향(±1). 없으면 0.
+	# **전방 통행 거리가 가장 긴 열** 쪽 방향(±1). 같으면 가까운 쪽, 없으면 0.
 	# 앞 행의 나무만 보면 안 된다 — 실제로 막는 나무는 구간 안쪽에 있을 수 있고,
 	# 그걸 놓쳐서 엉뚱한 방향으로 갔다가 갇혔다(20행·60행 스크롤 사망).
 	var col := col_of(player.x)
+	var mine := _bot_col_reach(player.row, col)
+	var best := mine
+	var dir := 0
 	for d in range(1, COLS):
-		if col + d < COLS and _bot_seg_end(center_x(col + d)) > 0:
-			return 1
-		if col - d >= 0 and _bot_seg_end(center_x(col - d)) > 0:
-			return -1
-	return 0
+		for sgn in[1, -1]:
+			var c2: int = col + sgn * d
+			if c2 < 0 or c2 >= COLS:
+				continue
+			var n := _bot_col_reach(player.row, c2)
+			if n > best:
+				best = n
+				dir = sgn
+	return dir
 
 func _bot_not_dead_end(idx: int, x: float) -> bool:
 	# 착지 지점에서 **나갈 길이 있어야** 한다. 앞이 나무로 막혔는데 좌우까지 막힌 칸에
@@ -339,34 +395,66 @@ func _bot_not_dead_end(idx: int, x: float) -> bool:
 	if r == null:
 		return true
 	var col := col_of(x)
-	var nxt = rows.get(idx + 1)
-	if nxt == null or nxt.kind != Row.KIND_GRASS or not nxt.is_blocked(col):
+	# 앞으로 2행 이상 나갈 수 있으면 충분하다. 1행만 열려 있으면 그 다음에 또 갇힐 수 있다.
+	if _bot_col_reach(idx, col) >= 1:
 		return true
+	# 앞이 막혔다면 좌우로 옮길 수 있고, 그 열이 앞으로 나갈 수 있어야 한다
 	for dd in[1, -1]:
 		var c2: int = col + dd
-		if c2 >= 0 and c2 < COLS and not r.is_blocked(c2):
+		if c2 < 0 or c2 >= COLS or r.is_blocked(c2):
+			continue
+		if _bot_col_reach(idx, c2) >= 1:
 			return true
 	return false
 
-func _bot_plan_ok(m: int, x: float) -> bool:
-	# 중간 행은 착지 틱만(여유 ±2틱), 마지막 행은 머물 수 있는 창까지 확인한다.
-	# 나무로 막힌 풀밭은 들어갈 수 없으므로(bump) 통과 판정에서도 걸러야 한다.
+func _bot_plan_chain(m: int, x: float) -> Array:
+	# **행마다 머무는 시간을 유동적으로 잡는 구간 계획.** 반환값은 홉 시각(지금 기준 상대 틱)
+	# 목록이고, 실패하면 빈 배열이다.
+	#
+	# 고정 간격 계획은 구간의 모든 행이 **동시에** 열리는 창을 요구한다. 4행 이상이면 그런
+	# 창이 거의 없어 봇이 몇 초씩 정지하다 스크롤에 깔렸다. 사람은 빈틈으로 뛰어들어 잠깐
+	# 기다리고 다시 뛴다 — 그 자유도를 준다. 각 행의 **점유 구간 전체**를 검사하므로
+	# 검증되지 않은 정지는 여전히 없다.
+	var hops := []
+	var h_prev := 0                       # 지금(0틱)에 첫 홉
 	for i in range(1, m + 1):
 		var r = rows.get(player.row + i)
 		if r == null:
-			return false
+			return []
 		if r.kind == Row.KIND_GRASS and r.is_blocked(col_of(x)):
-			return false
-		# 홉 간격이 gap이면 i번째 행에 [(i-1)*gap+8, i*gap] 동안 서 있다.
-		# gap == 8이면 착지 한 틱뿐이지만, 사람 흉내를 내려면 gap을 늘려야 하고
-		# 그만큼 노출이 길어지므로 창 전체를 검사한다.
-		if i < m and not _bot_cell_safe(player.row + i, x,
-				(i - 1) * bot_gap + 6, i * bot_gap + 2):
-			return false
-	if not _bot_not_dead_end(player.row + m, x):
+			return []                     # 나무: 통과 불가
+		var land := h_prev + 8
+		if i == m:
+			# 계획이 끝난 뒤에는 검증 없이 서 있게 되므로, 정지 지점에는 넉넉한 창을
+			# 요구한다. 도로·레일에 앉았다가 창이 만료되고 치인 것이 사망 1순위였다.
+			# 풀밭이 아니면 두 배를 요구해 사실상 풀밭까지 건너게 만든다.
+			var need: int = bot_stay_need
+			if r.kind != Row.KIND_GRASS:
+				need *= 2
+			if not _bot_cell_safe(player.row + i, x, land, land + need):
+				return []
+			hops.append(h_prev)
+			return hops
+		# 나갈 시각을 찾는다. 이 행에 [land, h] 동안 머물 수 있고, 다음 행에 h+8에
+		# 들어갈 수 있어야 한다 — 두 행을 함께 봐야 계획이 중간에 끊기지 않는다.
+		var found := -1
+		var h := maxi(land, h_prev + bot_gap)
+		while h <= land + BOT_MAX_WAIT:
+			if _bot_cell_safe(player.row + i, x, land, h + 1) \
+					and _bot_cell_safe(player.row + i + 1, x, h + 8, h + 10):
+				found = h
+				break
+			h += 2
+		if found < 0:
+			return []
+		hops.append(h_prev)
+		h_prev = found
+	return hops
+
+func _bot_plan_ok(m: int, x: float) -> bool:
+	if _bot_plan_chain(m, x).is_empty():
 		return false
-	var k_land := (m - 1) * bot_gap + 8
-	return _bot_cell_safe(player.row + m, x, k_land, k_land + bot_stay_need)
+	return _bot_not_dead_end(player.row + m, x)
 
 func _bot_plan_m() -> int:
 	# **갈 수 있는 가장 먼 정지 지점.** 풀밭까지 한 번에 건너는 것이 최선이지만,
@@ -377,8 +465,14 @@ func _bot_plan_m() -> int:
 	var hi: int = goal if goal > 0 else BOT_MAX_SEG
 	for m in range(hi, 0, -1):
 		var r = rows.get(player.row + m)
-		if r == null or r.kind == Row.KIND_RIVER:
+		if r == null:
 			continue
+		if r.kind == Row.KIND_RIVER:
+			# 강에서는 통나무에 밀리므로, 화면 밖으로 나가기까지 2초 이상 남을 때만
+			# 정지 지점으로 쓴다. 이걸 막아 두면 강을 포함한 긴 구간이 통째로 계획
+			# 불가가 되어 봇이 강 앞에서 정지한다.
+			if _bot_hit_tick(player.row + m, player.x, 8, 200) < 120:
+				continue
 		if _bot_plan_ok(m, player.x):
 			return m
 	return 0
@@ -389,11 +483,11 @@ func _bot_decide() -> void:
 	pending_input = Vector2i.ZERO
 	if tick_count - bot_log_t >= 300:
 		bot_log_t = tick_count
-		print("[bot] t=%d row=%d col=%d cam=%.1f score=%d r/s=%.2f 대기=%d 비상=%d br=%d m=%d cross=%d stuck=%d stall=%d" % [
+		print("[bot] t=%d row=%d col=%d cam=%.1f score=%d r/s=%.2f 대기=%d 비상=%d br=%d m=%d hops=%d stuck=%d stall=%d reach=%d" % [
 				tick_count, player.row, col_of(player.x), cam_row, score(),
 				float(max_row - start_row) / maxf(elapsed, 0.001), bot_waited, bot_bumps,
-				bot_br, _bot_seg_end(player.x), bot_cross, bot_stuck,
-				tick_count - bot_prog_t])
+				bot_br, _bot_seg_end(player.x), bot_hops.size(), bot_stuck,
+				tick_count - bot_prog_t, _bot_col_reach(player.row, col_of(player.x))])
 	if bot_done:
 		return
 	if score() >= bot_target or (bot_rows > 0 and rows_crossed() >= bot_rows):
@@ -409,7 +503,16 @@ func _bot_decide() -> void:
 		bot_prog_row = player.row
 		bot_prog_t = tick_count
 	var stall := tick_count - bot_prog_t
-	bot_stay_need = BOT_STAY if stall < 240 else (20 if stall < 480 else 10)
+	# **여유는 자원이다.** 좋은 계획을 기다리며 여유를 다 쓰면, 막힌 열에 갇혔을 때
+	# 후퇴할 여지가 없어 회복이 불가능해진다(93행 col 8 사망). 그래서 정체 시간과
+	# 남은 여유 **둘 다** 기준을 낮추는 방향으로 쓴다.
+	var sl := _bot_slack()
+	if stall < 240 and sl > 5.0:
+		bot_stay_need = BOT_STAY
+	elif stall < 480 and sl > 3.0:
+		bot_stay_need = 20
+	else:
+		bot_stay_need = 10
 
 	# 사람의 반응 시간. 1틱에 첫 키가 들어가는 트레이스는 기계임이 자명하다.
 	if tick_count < bot_start_t:
@@ -421,21 +524,24 @@ func _bot_decide() -> void:
 	var fwd := Vector2i(0, 1)
 	var f := _bot_move_target(fwd)
 
-	# 계획 실행 중 간격을 기다리는 동안에도 위험은 감시한다
-	if bot_cross > 0 and not can_hop:
-		if _bot_cell_safe(player.row, player.x, 0, 14):
-			return
-		bot_cross = 0
+	# 계획 실행 중: 다음 홉 시각까지는 기다린다. 다만 위험은 계속 감시한다.
+	if not bot_hops.is_empty():
+		if tick_count < int(bot_hops[0]):
+			# `_bot_cell_safe`는 강의 표류를 모른다. 계획대로 기다리는 동안 통나무에
+			# 밀려 X_MAX를 넘어 익사한 적이 있다.
+			if _bot_cell_safe(player.row, player.x, 0, 14) and _bot_ride_left() > 20:
+				return
+			bot_hops.clear()          # 예상 못한 위험 → 계획 파기
 
 	# 1. 계획 실행 중이면 착지 즉시 다시 뛴다. 단 새로 스폰된 차가 있을 수 있으므로
 	#    착지 지점만 다시 확인하고, 어긋나면 계획을 버리고 비상 판단으로 넘긴다.
-	if bot_cross > 0 and can_hop:
+	if not bot_hops.is_empty():
 		if f["ok"] and _bot_cell_safe(f["row"], f["x"], 8, 11):
-			bot_cross -= 1
+			bot_hops.remove_at(0)
 			bot_br = 1
 			_bot_move(fwd)
 			return
-		bot_cross = 0
+		bot_hops.clear()
 
 	# 2. 구간 계획. 지금 이 틱에 출발할 수 있는지만 본다 — 안 되면 다음 틱에 다시
 	#    물으므로 출발 시각 탐색을 따로 할 필요가 없다.
@@ -447,16 +553,21 @@ func _bot_decide() -> void:
 		bot_gap = brng.randi_range(8, 9)
 		m = _bot_plan_m()
 	if m > 0:
-		bot_cross = m - 1
-		bot_stuck = 0
-		bot_br = 2
-		_bot_move(fwd)
-		return
+		var chain := _bot_plan_chain(m, player.x)
+		if not chain.is_empty():
+			bot_hops = []
+			for i in range(1, chain.size()):     # 첫 홉은 지금 하므로 제외
+				bot_hops.append(tick_count + int(chain[i]))
+			bot_stuck = 0
+			bot_br = 2
+			_bot_move(fwd)
+			return
 	bot_stuck += 1
 
 	# 3. 이 열로는 나갈 수 없거나(나무) 오래 막혀 있으면 열을 옮긴다.
 	var col := col_of(player.x)
 	var goal := _bot_seg_end(player.x)
+	var reach := _bot_col_reach(player.row, col)
 	if can_hop and (goal == 0 or bot_stuck > 90 or stall > 240):
 		for dd in[1, -1]:
 			var c2: int = col + dd
@@ -474,8 +585,9 @@ func _bot_decide() -> void:
 				_bot_go_side(dd)
 				return
 		if goal == 0:
-			# 통과 가능한 열이 여러 칸 떨어져 있을 수 있다. 그 방향이 현재 행의 나무로
-			# 막히면 **반대쪽도** 시도하고, 둘 다 막히면 뒤로 물러나 우회한다.
+			# **전방이 트인 열로 옮긴다.** 갇힌 뒤에는 손쓸 수 없다.
+			# 그 방향이 현재 행의 나무로 막히면 **반대쪽도** 시도하고,
+			# 둘 다 막히면 뒤로 물러나 우회한다.
 			var want := _bot_col_dir()
 			for dd2 in[want, -want]:
 				if dd2 == 0 or not _bot_side(dd2):
@@ -495,7 +607,7 @@ func _bot_decide() -> void:
 	# 4. 지금 칸이 안전하고 스크롤도 멀면 기다린다. 대기는 공짜다 — 한 칸에서
 	#    최대 15초를 버틸 수 있다(`_bot_slack`).
 	var urgent: bool = not _bot_cell_safe(player.row, player.x, 0, BOT_WATCH) \
-			or _bot_ride_left() < 90 or _bot_scroll_k() < 240 or stall > 540
+			or _bot_ride_left() < 90 or _bot_scroll_k() < 420 or stall > 420
 	if not urgent:
 		bot_br = 4
 		bot_waited += 1
@@ -507,18 +619,28 @@ func _bot_decide() -> void:
 
 	# 5. 비상. 후보마다 **첫 충돌 틱**을 재서 가장 늦은 칸으로 뛴다. 정지도 후보이므로
 	#    서 있는 게 최선이면 서 있는다. 전진에 동점 보너스를 줘 진행을 잃지 않는다.
-	var stay_k := mini(_bot_hit_tick(player.row, player.x, 0, 150), _bot_scroll_k())
+	# 탐색 상한이 스크롤 마감보다 작으면 "여기가 제일 안전"이 영원히 이겨 갇힌 자리에서
+	# 못 나온다 — 상한을 300으로 올린다(78행에서 611회 정지 후 사망).
+	var stay_k := mini(_bot_hit_tick(player.row, player.x, 0, 300), _bot_scroll_k())
 	var best_k := stay_k
 	var best_dir := Vector2i.ZERO
+	# 정체가 길어질수록 전진에 가중치를 준다. 비상 판단은 한 홉만 보므로 갇힌 자리에서는
+	# 정지가 계속 최선으로 뽑힌다. 나가야 살아난다.
+	var push: int = mini(stall / 8, 80)
 	# 후퇴는 여유를 1행 더 깎으므로 값을 낮게 주되, **금지하지는 않는다.** 좌우가 나무로
 	# 막힌 자리에서는 후퇴가 유일한 탈출로다(-999로 막아 두고 20행에서 죽었다).
 	var back_w := -4 if _bot_slack() > 3.0 else (-50 if _bot_slack() > 1.2 else -999)
-	for c in[[fwd, 8], [Vector2i(-1, 0), 0], [Vector2i(1, 0), 0],
+	for c in[[fwd, 8 + push], [Vector2i(-1, 0), push / 2], [Vector2i(1, 0), push / 2],
 			[Vector2i(0, -1), back_w]]:
 		var t := _bot_move_target(c[0])
 		if not t["ok"]:
 			continue
-		var k: int = _bot_hit_tick(t["row"], t["x"], 8, 150) + int(c[1])
+		var k: int = _bot_hit_tick(t["row"], t["x"], 8, 300) + int(c[1])
+		if not _bot_not_dead_end(t["row"], t["x"]):
+			k -= 40          # 갇히는 칸으로 도망가면 스크롤에 깔린다 (159행 사망)
+		var ec := col_of(t["x"])
+		if ec == 0 or ec == COLS - 1:
+			k -= 10          # 끝 열은 탈출구가 하나뿐이고 한쪽 차선의 진입 지점이다
 		if k > best_k:
 			best_k = k
 			best_dir = c[0]

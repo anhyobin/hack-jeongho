@@ -127,6 +127,20 @@ class H(BaseHTTPRequestHandler):
         raw = self.rfile.read(n)
         if self.path.split("?")[0] == "/api/scores":
             log(f"  바디({len(raw)}B): {raw[:180].decode('utf-8','replace')}")
+            # 시뮬레이터 검증용 정답지. 모의 토큰이면 시드를 되계산해 함께 적는다 —
+            # (seed, trace, ticks, rows)가 있으면 포팅이 맞는지 오프라인에서 확인할 수 있다.
+            dump = os.environ.get("DUMP_BODIES")
+            if dump:
+                try:
+                    d = json.loads(raw.decode("utf-8"))
+                    tok = str(d.get("token", ""))
+                    if tok.startswith("MOCK."):
+                        d["seed"] = 1000000000000000 + int(tok[5:]) * 7919 + PORT * 104729
+                    with open(dump, "a", encoding="utf-8") as fh:
+                        fh.write(godot_json(d) + "\n")
+                    log(f"  덤프 -> {dump}")
+                except Exception as e:
+                    log(f"  덤프 실패: {e}")
         # 오버라이드가 하나도 없으면 재직렬화하지 않는다 — 서버가 바디 형태를 지문으로
         # 검사하므로(§6) 손대지 않는 것이 항상 안전하다.
         if self.path.split("?")[0] == "/api/scores" and any(
