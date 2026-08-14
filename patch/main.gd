@@ -420,6 +420,14 @@ func _search_chunk_ok(g) -> bool:
 		return true
 
 	if search_capped:
+		# 상한이 목표에 못 미치는 것이 확정됐으면 더 갈아 봐야 의미가 없다. 즉시 끝낸다 —
+		# 청크 예산이 닫힌 창에서 헛회차를 수백 번 도는 것을 막는다.
+		# (보너스 상한을 넉넉히 20%로 봐도 `sfloor`에 못 닿는 경우)
+		if search_floor > 0 and float(search_row_cap) * 1.2 < float(search_floor):
+			print("[search] ★ 상한 %d행으로는 %d점에 닿을 수 없다 — 탐색을 끝낸다 (제출 없음)" % [
+					search_row_cap, search_floor])
+			_search_finish()
+			return false
 		# ★ 상한 뒤에도 차단은 유지해야 한다. 안 그러면 원본의 선행 요청이 회차마다
 		#   한 건씩 나가고, 상한 뒤에는 회차가 초당 여러 번 돌기 때문에 그것만으로
 		#   남의 서버에 수십~수백 건이 쌓인다(실측: 82회차에 72건).
