@@ -157,7 +157,7 @@ func _process(dt: float) -> void:
 		return
 	_sim_acc += dt
 	var guard := 0
-	while _sim_acc >= FIXED_DT and state == "play" and guard < MAX_TICKS_PER_FRAME:
+	while main != null and main.bot_tick_ok(self, guard) and _sim_acc >= FIXED_DT and state == "play":
 		_sim_tick(FIXED_DT)
 		_sim_acc -= FIXED_DT
 		guard += 1

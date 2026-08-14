@@ -33,6 +33,11 @@ python3 tools/board_probe.py <wait_seconds> <score> [rows] [name] [char]
 # (default ages 480,600,720 — stops at the first acceptance)
 python3 tools/submit_target.py <score> <name> [char] [ages] [rows]
 
+# checkpoint backtracking search — the only route that reached 600+ (docs/autopilot.md §8)
+#   ?ss=1 rewinds to before each death, fast-replays the prefix, and continues with new jitter.
+#   ?sv=1 must pass first: replay a run's own trace and confirm rows/score/death tick match.
+#   602 points took 12 rounds and 2 live requests (api/start + POST).
+
 # repack the pck with an autopilot spliced into game.gd/main.gd (docs/autopilot.md)
 python3 tools/pack.py --verify          # sanity: rebuilding the original must be byte-identical
 python3 tools/make_bot_patch.py         # decompiled source + patch/bot_*.part.gd -> patch/*.gd
@@ -76,6 +81,8 @@ Comments are **unrecoverable** (the tokenizer never stores them). Every statemen
 ## Leaderboard API and its server-side validation
 
 > **As of 2026-08-14 the only way to put a score on the board is to actually cross the rows.** The server reseeds the world from `api/start`'s `seed`, replays the submitted `trace`, and computes **both `rows` and `score`** itself. Inflating `score` within the old `score <= rows*2+40` slack is dead: `503 / rows 240` and `200 / rows 85` were both `403 rejected`, while honest `200 / rows 188` from the same client passed. Everything below about buying score with token age is **history** — read `docs/leaderboard-api.md` §8 first, then `docs/autopilot.md` for the only live path.
+>
+> **Never experiment with the nickname you intend to keep.** Since 2026-08-14 evening every board entry carries `rep` (0 = clean, 2 = suspect, 3 = abuse-suspected) plus a Korean `rep_why`, applied retroactively to all 50 entries. `사랑해요정호님` sent one inflated body and every entry under that name now reads **"위조 시도 이력"** (`rep` 2-3) — a rejected POST leaves no board row but does leave a mark. The clean nickname `야호정호` scored `rep 0`. Probe with a throwaway name; register the goal with a fresh one (`docs/leaderboard-api.md` §9).
 >
 > Two further rules from that session: **judge a submission only by the POST response's `ok`** — 4 of 6 accepted entries were missing from `GET api/scores` for hours and then reappeared, and mistrusting `ok: true` is why one goal now has four duplicate entries that cannot be withdrawn (§8.2) — and **the response's `rank` is unreliable** (a stored #1 came back as `rank 4`).
 
