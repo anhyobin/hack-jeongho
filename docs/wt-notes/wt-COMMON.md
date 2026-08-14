@@ -36,11 +36,20 @@ PORT=<자기포트> MOCK_START=1 BLOCK_POST=1 python3 tools/local_proxy.py   # �
 그리고 브라우저(Playwright MCP)로 `http://127.0.0.1:<자기포트>/?bot=1&...`를 연다.
 파라미터는 `docs/autopilot.md` §5에 표로 있다 — `bot/bt/br/bn/bsub/bloop/bchar/bseed/bdump`.
 
-**`_dl/extracted/`가 없으면 `make_bot_patch.py`가 실패한다.** 워크트리에는 `.gitignore`로
-빠져 있으니 메인 작업 디렉터리에서 복사해 온다(재다운로드·재디컴파일 필요 없다):
+**셋업은 이미 끝나 있다.** `.gitignore`로 빠지는 입력 3개를 워크트리에 복사해 두었고,
+`pack.py --verify`(원본 바이트 복원)와 pck 빌드가 양쪽에서 통과하는 것을 확인했다.
+
+```
+_dl/extracted/     make_bot_patch.py의 입력 (디컴파일된 원본 8개)
+_dl/index.pck      pack.py의 베이스 (--verify와 빌드 양쪽에서 읽는다)
+_local/            클라이언트 사본. 패치된 pck만 각자 빌드한다
+```
+
+지웠거나 깨졌으면 메인 작업 디렉터리에서 다시 복사한다(재다운로드·재디컴파일은 필요 없다):
 
 ```bash
 cp -R /Users/anhyobin/dev/hack-jeongho/_dl/extracted _dl/
+cp /Users/anhyobin/dev/hack-jeongho/_dl/index.pck _dl/
 ```
 
 ## 포트 — 겹치면 서로의 주행을 망친다
