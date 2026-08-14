@@ -12,6 +12,7 @@
 |---|---|---|
 | `wt/bot` | 엔진 안 온라인 봇을 강하게 만들어 **한 주행으로** 600점 | `정호야호` |
 | `wt/search` | `replay_mode`로 죽은 지점을 되감아 **구간별로** 600점 경로를 조립 | `야호정호` |
+| `wt/rng` | 난수를 뚫어 **오프라인 백트래킹 탐색**으로 경로를 합성 | `정호만세` |
 
 600점은 **실제로 약 550행을 넘어야** 나온다(`score = 넘은 행 + 니어미스 보너스`, 보너스는
 실측 행수의 1/12쯤). 점수를 부풀려 보내는 길은 막혀 있다 — 아래 "확정된 사실" 1번.
@@ -57,6 +58,7 @@ cp /Users/anhyobin/dev/hack-jeongho/_dl/index.pck _dl/
 ```
 wt/bot     8781
 wt/search  8782
+wt/rng     8783
 ```
 
 8777·8778·8779는 **다른 세션들이 쓴다**(이 레포는 지금 3개 이상의 세션이 동시에 만진다).
@@ -78,7 +80,7 @@ docs/submissions-log.md    제출 감사 기록. 다른 세션이 통째로 덮�
 CLAUDE.md, README.md       프로젝트 규칙·요약. 통합 담당(베이스 세션)이 쓴다
 recovered/*.gd             원본 복원본. 정본이며 수정 대상이 아니다
 tools/pack.py              재패커. 원본을 바이트 단위로 복원하는 것이 검증된 상태다
-tools/sim.py               파이썬 포팅 시도. 아래 "확정된 사실" 5번을 보고 손대지 마라
+tools/sim.py               **wt/rng 소유.** 다른 워크트리는 손대지 마라
 ```
 
 **커밋하지 않는 것** (빌드 산출물이라 매번 바뀐다. 통합에서 베이스가 한 번 생성한다):
@@ -99,6 +101,11 @@ wt/search   patch/bot_search.part.gd  (신규)  (체크포인트 탐색 하네�
             patch/bot_main.part.gd            (주행 시작·재시작 제어)
             tools/make_bot_patch.py           (새 part 파일 등록 + 삽입점 1개)
             docs/wt-notes/wt-search.md        (작업 기록)
+
+wt/rng      tools/rng_probe.py       (신규)  (난수 알고리즘 판정)
+            tools/solve.py           (신규)  (백트래킹 탐색)
+            tools/sim.py                     (RandomPCG 클래스만)
+            docs/wt-notes/wt-rng.md          (작업 기록)
 ```
 
 ## 계약 — 양쪽이 머지되므로 이 이름들을 바꾸지 마라
