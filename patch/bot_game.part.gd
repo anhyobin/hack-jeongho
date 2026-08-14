@@ -63,6 +63,19 @@ func _bot_setup() -> void:
 	bot_start_t = brng.randi_range(55, 150)
 	bot_gap = brng.randi_range(8, 9)
 	print("[bot] 사람 타이밍: 첫 입력 %d틱, 홉 간격 %d틱" % [bot_start_t, bot_gap])
+	# [로컬 전용 · 커밋 금지] brep=1 → _local/trace.json 을 engine replay_mode 에 먹인다
+	var rq = _bot_qs("brep")
+	if rq != null and str(rq) == "1":
+		var js := "(function(){var x=new XMLHttpRequest();x.open('GET','trace.json',false);x.send();return x.responseText;})()"
+		var txt = JavaScriptBridge.eval(js, true)
+		var arr = JSON.parse_string(str(txt))
+		if arr is Array:
+			replay_inputs = arr
+			replay_idx = 0
+			replay_mode = true
+			print("[brep] replay_mode trace=%d seed=%d" % [arr.size(), main.ranking.active_seed])
+		else:
+			print("[brep] trace.json 파싱 실패")
 	var dq = _bot_qs("bdump")
 	if dq != null and str(dq) == "1":
 		# **포팅 검증용.** 월드의 `rng`를 건드리지 않도록 별도 인스턴스를 쓴다.

@@ -33,7 +33,12 @@ python3 tools/board_probe.py <wait_seconds> <score> [rows] [name] [char]
 # (default ages 480,600,720 — stops at the first acceptance)
 python3 tools/submit_target.py <score> <name> [char] [ages] [rows]
 
-# checkpoint backtracking search — the only route that reached 600+ (docs/autopilot.md §8)
+# offline: reproduce the world from a seed and synthesize a trace (docs/autopilot.md §9)
+python3 tools/rng_probe.py                       # RNG ground-truth check (must exit 0)
+python3 tools/sim.py /tmp/valcases.jsonl         # replay real runs; must match every case
+python3 tools/solve.py <seed> --target 600 --width 8    # beam search -> trace + ticks
+
+# checkpoint backtracking search — the route that reached 600+ in the engine (docs/autopilot.md §8)
 #   ?ss=1 rewinds to before each death, fast-replays the prefix, and continues with new jitter.
 #   ?sv=1 must pass first: replay a run's own trace and confirm rows/score/death tick match.
 #   602 points took 12 rounds and 2 live requests (api/start + POST).
@@ -64,11 +69,31 @@ python3 tools/watch_gate.py [--baseline]
 
 `token_lines`/`token_columns` survive in the pack, so every `file.gd:LINE` citation in `GAME_STRUCTURE.md` **matches the original line numbers**. Preserve line numbering when touching `recovered/`, or those references silently rot.
 
-## recovered/ is a restoration, not code to improve
+## recovered/ is the 2026-08-12 snapshot — the live game is `_dl/extracted/`
 
-`recovered/*.gd` is byte-identical to `_dl/extracted/scripts/*.decompiled.gd` and is the canonical copy. The dead code in it belongs to the original author, not to the decompiler: `Ranking.server_ok` is assigned three times and never read, `UI.font_s` is loaded and unused, `UI.show_game_over`'s `stage_i` parameter is ignored, `Row.train_half`'s default `410.0` is always overwritten with `415`. Leave them — they are evidence.
+**`recovered/*.gd` is no longer byte-identical to `_dl/extracted/scripts/*.decompiled.gd`.** The operator reshipped the client on 08-14 02:16 and 6 of the 8 files changed (`game` 112 lines, `ranking` 54, `main` 16, `ui` 15, `player` 9, `row` 7; `theme_defs` and `sfx` are unchanged). `tools/make_bot_patch.py` already reads `_dl/extracted/`, so builds are unaffected — but **reasoning from `recovered/` produces wrong conclusions.** Re-run the pipeline and read the fresh decompile before making any claim about current behaviour.
+
+The changes are all in service of one goal — making a run **reproducible from a seed** — which is what the server's replay verification needs:
+
+- `rng.seed = main.ranking.active_seed` (was `rng.randomize()`, so the old world was unseeded)
+- `FIXED_DT = 1/60` fixed-step loop with `tick_count`, `input_trace`, `replay_mode`/`replay_inputs`
+- screen shake moved to a separate `vrng` so it cannot pollute the world stream
+- `_update_snow` moved **out** of `_sim_tick` (frame-time dependence removed from the simulation)
+- **`cols_pool.shuffle()` replaced by `rng.randi_range(0, i)` Fisher-Yates.** `Array.shuffle()` uses Godot's *global* RNG, so the old build's tree layout was unreproducible; the current one is seeded. Miss this and you will conclude that offline reproduction is impossible.
+
+`recovered/` is still worth keeping as the restoration record. Its dead code belongs to the original author, not to the decompiler: `Ranking.server_ok` is assigned three times and never read, `UI.font_s` is loaded and unused, `UI.show_game_over`'s `stage_i` parameter is ignored, `Row.train_half`'s default `410.0` is always overwritten with `415`. Leave them — they are evidence.
 
 Comments are **unrecoverable** (the tokenizer never stores them). Every statement about developer intent is inference; `GAME_STRUCTURE.md` marks those 추정, and new claims should follow that convention.
+
+## Godot 4.7.1 RNG — three things that are not what they look like
+
+`tools/sim.py` reproduces the world offline; getting there took three corrections, each verified against the `4.7.1-stable` source and a 6-case ground truth (`tools/rng_probe.py`, exit 0 = all match):
+
+1. **`rng.seed = N` does not set `state = N`.** `RandomPCG::seed()` calls `pcg32_srandom_r(&pcg, N, current_inc)`: state starts at 0, `inc = (PCG_DEFAULT_INC_64 << 1) | 1`, then it steps, adds the seed, and steps again. So `seed 0` does **not** yield `randf() == 0.0` — that observation is what exposed the whole problem.
+2. **`randf()` consumes `rand()` twice** — `ldexp((float)(rand() | 0x80000001), -32 - clz32(proto))`, not `rand() / 0xFFFFFFFF`. Get this wrong and every value after the first diverges no matter how correct the seeding is.
+3. **`randi_range` is rejection-sampled** (`pcg32_boundedrand_r`, `threshold = -n % n`), not `rand() % n`. Identical for powers of two, different for 9/7/6/5/3 — exactly the `randi_range(0, i)` Fisher-Yates in `_build_grass`. Also `randi_range(a, a)` consumes **nothing**.
+
+A one-line elimination table is in `docs/wt-notes/wt-rng.md`: 7 seedings × 3 `randf` variants, one cell passes. The earlier session had already tried the right seeding — but only against the wrong `randf`, so it could not pass. **When you rule out a hypothesis, make sure everything else in the test is right, or the whole elimination table is void.**
 
 ## Game architecture (what takes several files to see)
 

@@ -174,7 +174,12 @@ def expand_row(g: sim.Game) -> list:
             prev = k
             if not alive(cur) or cam_slack(cur) <= 0.0:
                 break          # 더 기다리면 스크롤에 죽는다
-        for d in (FWD, LEFT, RIGHT):
+        for d in (FWD, LEFT, RIGHT, BACK):
+            # 후퇴는 스크롤 여유를 깎지만, 앞·좌·우가 다 막힌 덫에서는 유일한
+            # 탈출구다. 빼 두면 빔이 통째로 전멸한다(실측: 시드 4376317247726913
+            # 127행에서 width 8 빔 전멸).
+            if d == BACK and cam_slack(cur) < 3.0:
+                continue
             s = copy.deepcopy(cur)
             if not do_move(s, d):
                 continue             # bump — wait와 같으므로 후보가 아니다
