@@ -33,6 +33,11 @@ var bot_pending_submit := false  # 제출 대기 중(사람의 입력 시간을 
 func _bot_autostart() -> void:
 	if not _bot_flag("bot"):
 		return
+	# 체크포인트 탐색(`ss=1`)과 재생 동일성 검증(`sv=1`)은 주행을 여러 번 이어 붙이므로
+	# 하네스가 시작·재시작·제출을 통째로 통제한다 (`bot_search.part.gd`).
+	if _bot_flag("ss") or _bot_flag("sv"):
+		await _search_begin()
+		return
 	var ch = _bot_qs("bchar")
 	var char_id := str(ch) if ch != null and str(ch) != "" else "peccy"
 	# bseed: 토큰 없이 특정 시드의 월드를 재생한다(`claim_run(forced_seed)`).
@@ -51,6 +56,10 @@ func _bot_autostart() -> void:
 
 func _bot_after_over(cause: String) -> void:
 	print("[over] cause=%s best=%d" % [cause, int(ranking.data["best"])])
+	if search_mode != "":
+		# 탐색 중이면 재시작은 `bot_tick_ok`가 사망 틱에서 이미 처리했다. 여기까지
+		# 오는 것은 검증·제출 주행의 마지막 게임오버뿐이고, 그때는 아무것도 하지 않는다.
+		return
 	if bot_did_submit:
 		print("[bot] 등록 완료 — 재시도를 멈춘다")
 		return
