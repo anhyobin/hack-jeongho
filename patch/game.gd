@@ -14,6 +14,13 @@ var canvas_mod: CanvasModulate
 var player: Player
 var rows := {}
 var rng := RandomNumberGenerator.new()
+
+var chunk_rows := 25
+var cur_chunk := -1
+var base_seed := 0
+var unranked := false
+var stall_since := -1
+const STALL_GIVEUP_TICKS := 420
 var vrng: RandomNumberGenerator = null
 var gen_next := 0
 var start_row := 0
@@ -33,10 +40,15 @@ func setup(p_main: Node, char_name: String) -> void:
 
 
 	var seed_val: int = main.ranking.active_seed
+	base_seed = seed_val
 	if seed_val != 0:
 		rng.seed = seed_val
 	else:
 		rng.randomize()
+
+	cur_chunk = -1
+	unranked = false
+	chunk_rows = maxi(1, main.ranking.active_chunk_rows)
 
 	vrng = RandomNumberGenerator.new()
 	vrng.randomize()
@@ -56,7 +68,8 @@ func setup(p_main: Node, char_name: String) -> void:
 	gen_next = start_row
 	consec = { "kind": Row.KIND_GRASS, "count": 6, "since_grass": 0}
 	while gen_next < start_row + 15:
-		_gen_row()
+		if not _gen_row():
+			break
 	max_row = start_row
 	cam_row = float(start_row)
 	stage_idx = ThemeDefs.stage_index(start_row)
@@ -86,8 +99,50 @@ func _make_row(idx: int, kind: int) -> void:
 	r.build(idx, kind, ThemeDefs.theme_for_row(maxi(idx, 0)), rng, below_is_road)
 	rows[idx] = r
 
-func _gen_row() -> void:
+func _ensure_chunk(idx: int) -> bool:
+
+
+
+	var ci: int = maxi(idx, 0) / chunk_rows
+	if ci == cur_chunk:
+		return true
+	var s := 0
+	if main != null:
+		s = main.ranking.chunk_seed_of(ci)
+
+	var online: bool = main != null and main.ranking.active_token != "" and main.ranking.active_token != "TEST"
+
+	if s == 0 and not online:
+		rng.seed = hash("local:%d:%d" % [ci, base_seed]) & 4503599627370495
+		unranked = true
+		stall_since = -1
+		cur_chunk = ci
+		return true
+	if s == 0:
+
+
+
+		if stall_since < 0:
+			stall_since = tick_count
+		if main != null and not replay_mode:
+			main.ranking.want_chunk(ci, input_trace, tick_count, main.last_char)
+		if tick_count - stall_since < STALL_GIVEUP_TICKS:
+			return false
+		rng.seed = hash("local:%d:%d" % [ci, base_seed]) & 4503599627370495
+		unranked = true
+	else:
+		rng.seed = s
+	stall_since = -1
+	cur_chunk = ci
+
+	if main != null and not replay_mode:
+		main.ranking.want_chunk(ci + 1, input_trace, tick_count, main.last_char)
+	return true
+
+func _gen_row() -> bool:
 	var idx := gen_next
+	if not _ensure_chunk(idx):
+		return false
 	gen_next += 1
 	var theme := ThemeDefs.theme_for_row(idx)
 	var kind := Row.KIND_GRASS
@@ -111,6 +166,7 @@ func _gen_row() -> void:
 		consec["count"] = 1
 	consec["since_grass"] = 0 if kind == Row.KIND_GRASS else consec["since_grass"] + 1
 	_make_row(idx, kind)
+	return true
 
 func _pick_kind(theme: Dictionary) -> int:
 	var w: Dictionary = theme["weights"]
@@ -191,7 +247,8 @@ func _sim_tick(dt: float) -> void:
 	world.position.y = CAM_ANCHOR + cam_row * CELL
 
 	while gen_next < int(cam_row) + 14:
-		_gen_row()
+		if not _gen_row():
+			break
 	for idx in rows.keys():
 		if idx < int(cam_row) - 8:
 			rows[idx].queue_free()
@@ -261,7 +318,11 @@ func _apply_move(dir: Vector2i) -> void:
 		player.bump(dir)
 		return
 	while gen_next <= to_row + 1:
-		_gen_row()
+		if not _gen_row():
+			break
+	if not rows.has(to_row):
+		player.bump(dir)
+		return
 	var to_x := player.x
 	if dir.x != 0:
 		if player.riding != null:
@@ -528,6 +589,19 @@ func _bot_setup() -> void:
 	bot_start_t = brng.randi_range(55, 150)
 	bot_gap = brng.randi_range(8, 9)
 	print("[bot] 사람 타이밍: 첫 입력 %d틱, 홉 간격 %d틱" % [bot_start_t, bot_gap])
+	# [로컬 전용 · 커밋 금지] brep=1 → _local/trace.json 을 engine replay_mode 에 먹인다
+	var rq = _bot_qs("brep")
+	if rq != null and str(rq) == "1":
+		var js := "(function(){var x=new XMLHttpRequest();x.open('GET','trace.json',false);x.send();return x.responseText;})()"
+		var txt = JavaScriptBridge.eval(js, true)
+		var arr = JSON.parse_string(str(txt))
+		if arr is Array:
+			replay_inputs = arr
+			replay_idx = 0
+			replay_mode = true
+			print("[brep] replay_mode trace=%d seed=%d" % [arr.size(), main.ranking.active_seed])
+		else:
+			print("[brep] trace.json 파싱 실패")
 	var dq = _bot_qs("bdump")
 	if dq != null and str(dq) == "1":
 		# **포팅 검증용.** 월드의 `rng`를 건드리지 않도록 별도 인스턴스를 쓴다.
@@ -1138,6 +1212,12 @@ func _bot_after_death() -> void:
 				str(dr.ambush_armed), str(dr.ambush_done), info])
 	if not bot_submit or bot_submitted or bot_name == "":
 		return
+	# 프로토콜 v4: 청크 시드를 서버에서 못 받아 로컬 대체 시드로 만든 월드를 달린
+	# 주행이다. 서버는 그 월드를 재현할 수 없으므로 제출은 반드시 거부되고, 토큰만
+	# 태우면서 그 닉네임에 "위조 시도 이력"을 남긴다(`leaderboard-api.md` §9.2).
+	if unranked:
+		print("[bot] 제출 안 함: 맵을 서버에서 못 받은 판이다(unranked)")
+		return
 	var rows_v := rows_crossed()
 	var sc := score()
 	if sc < bot_target:
@@ -1167,4 +1247,5 @@ func _bot_after_death() -> void:
 			print("[bot] 거부됐다 — 다시 주행한다")
 			main.retry()
 	, CONNECT_ONE_SHOT)
-	main.ranking.submit(bot_name, sc, rows_v, main.last_char, main.last_ticks, main.last_trace)
+	main.ranking.submit(bot_name, sc, rows_v, main.last_char, main.last_ticks,
+			main.last_trace, main.last_unranked)

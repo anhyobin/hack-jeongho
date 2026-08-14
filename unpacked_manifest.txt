@@ -1,7 +1,7 @@
 pack_format_version=4 engine=4.7.1 flags=2 file_base=112
-reserved[0:4]= [3413200, 0, 0, 0]
-dir_off= 0x3414d0
-file_count= 110
+reserved[0:4]= [3419616, 0, 0, 0]
+dir_off= 0x342de0
+file_count= 118
       675  flags=0  magic=b'RSRC'       .godot/exported/133200997/export-3070c538c03ee49b7677ff960a3f5195-main.scn
      1081  flags=0  magic=b'list'       .godot/global_script_class_cache.cfg
    584816  flags=0  magic=b'RSCC'       .godot/imported/Galmuri11-Bold.ttf-3a23d149e7b99ee54cc37134f38f9040.fontdata
@@ -37,6 +37,10 @@ file_count= 110
       304  flags=0  magic=b'GST2'       .godot/imported/pine_snow.png-087dd590494ada9c4d6f5e69e4719de1.ctex
       200  flags=0  magic=b'GST2'       .godot/imported/rabbit_0.png-8db0d85802adddae89f9567d8c11b95a.ctex
       222  flags=0  magic=b'GST2'       .godot/imported/rabbit_1.png-1dfe4c3a7ca1e261262513e97d0305cf.ctex
+      168  flags=0  magic=b'GST2'       .godot/imported/rep_0.png-30e3b1ec490ef0601e896629f5c3ce11.ctex
+      168  flags=0  magic=b'GST2'       .godot/imported/rep_1.png-622684c14d0ceb511d8e54e929a4b73c.ctex
+      168  flags=0  magic=b'GST2'       .godot/imported/rep_2.png-f1d5ca9112b098e649b51130eedfb1af.ctex
+      200  flags=0  magic=b'GST2'       .godot/imported/rep_3.png-30c6c1ccbb8493ce1b9cd8afe030d6fc.ctex
       168  flags=0  magic=b'GST2'       .godot/imported/rock.png-bcf52a497742222238feaf1e96d9860c.ctex
       228  flags=0  magic=b'GST2'       .godot/imported/sign_deer.png-0e55f1d32996dc110dbe89e4b8b6530f.ctex
      3527  flags=0  magic=b'RSRC'       .godot/imported/splash.wav-5ec4fd8293fbd42c27becff16a2e488f.sample
@@ -48,7 +52,7 @@ file_count= 110
       252  flags=0  magic=b'GST2'       .godot/imported/tree.png-15cb16b197553088007c6ba3ce2f75b0.ctex
       294  flags=0  magic=b'GST2'       .godot/imported/truck.png-1ea38b1729848f1a090cd7377bf55c2e.ctex
       142  flags=0  magic=b'GST2'       .godot/imported/warn.png-43fb1bc1509c5e06479b0bb6ed573fe6.ctex
-     2147  flags=0  magic=b'4\x00\x00\x00'  .godot/uid_cache.bin
+     2315  flags=0  magic=b'8\x00\x00\x00'  .godot/uid_cache.bin
       149  flags=0  magic=b'[rem'       assets/audio/bgm.wav.import
       152  flags=0  magic=b'[rem'       assets/audio/click.wav.import
       151  flags=0  magic=b'[rem'       assets/audio/crash.wav.import
@@ -84,6 +88,10 @@ file_count= 110
       197  flags=0  magic=b'[rem'       assets/sprites/pine_snow.png.import
       196  flags=0  magic=b'[rem'       assets/sprites/rabbit_0.png.import
       196  flags=0  magic=b'[rem'       assets/sprites/rabbit_1.png.import
+      194  flags=0  magic=b'[rem'       assets/sprites/rep_0.png.import
+      194  flags=0  magic=b'[rem'       assets/sprites/rep_1.png.import
+      192  flags=0  magic=b'[rem'       assets/sprites/rep_2.png.import
+      194  flags=0  magic=b'[rem'       assets/sprites/rep_3.png.import
       193  flags=0  magic=b'[rem'       assets/sprites/rock.png.import
       197  flags=0  magic=b'[rem'       assets/sprites/sign_deer.png.import
       193  flags=0  magic=b'[rem'       assets/sprites/taxi.png.import
@@ -97,13 +105,13 @@ file_count= 110
        97  flags=0  magic=b'[rem'       main.tscn.remap
       886  flags=0  magic=b'ECFG'       project.binary
        39  flags=0  magic=b'[rem'       scripts/game.gd.remap
-    11936  flags=0  magic=b'GDSC'       scripts/game.gdc
+    13351  flags=0  magic=b'GDSC'       scripts/game.gdc
        39  flags=0  magic=b'[rem'       scripts/main.gd.remap
-     2634  flags=0  magic=b'GDSC'       scripts/main.gdc
+     2767  flags=0  magic=b'GDSC'       scripts/main.gdc
        41  flags=0  magic=b'[rem'       scripts/player.gd.remap
      3627  flags=0  magic=b'GDSC'       scripts/player.gdc
        42  flags=0  magic=b'[rem'       scripts/ranking.gd.remap
-     3802  flags=0  magic=b'GDSC'       scripts/ranking.gdc
+     4990  flags=0  magic=b'GDSC'       scripts/ranking.gdc
        38  flags=0  magic=b'[rem'       scripts/row.gd.remap
     11686  flags=0  magic=b'GDSC'       scripts/row.gdc
        38  flags=0  magic=b'[rem'       scripts/sfx.gd.remap
@@ -111,4 +119,4 @@ file_count= 110
        45  flags=0  magic=b'[rem'       scripts/theme_defs.gd.remap
      3397  flags=0  magic=b'GDSC'       scripts/theme_defs.gdc
        37  flags=0  magic=b'[rem'       scripts/ui.gd.remap
-    18419  flags=0  magic=b'GDSC'       scripts/ui.gdc
+    20395  flags=0  magic=b'GDSC'       scripts/ui.gdc

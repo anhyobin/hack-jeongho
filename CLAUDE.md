@@ -44,16 +44,20 @@ python3 tools/solve.py <seed> --target 600 --width 8    # beam search -> trace +
 #   602 points took 12 rounds and 2 live requests (api/start + POST).
 
 # repack the pck with an autopilot spliced into game.gd/main.gd (docs/autopilot.md)
+# NOTE the pck filename tracks the live deploy — read it out of _dl/index.html, don't hardcode.
 python3 tools/pack.py --verify          # sanity: rebuilding the original must be byte-identical
 python3 tools/make_bot_patch.py         # decompiled source + patch/bot_*.part.gd -> patch/*.gd
-python3 tools/pack.py -o _local/index.241563a7.pck \
+python3 tools/pack.py -o _local/index.bc05542a.pck \
         --text scripts/game.gd=patch/game.gd --text scripts/main.gd=patch/main.gd
-# then update "index.241563a7.pck" in _local/index.html's fileSizes to the new byte size
+# then update that filename's entry in _local/index.html's fileSizes to the new byte size
+
+# probe how POST api/chunk validates a trace (protocol v4). Uses a throwaway token, no nickname.
+python3 tools/chunk_probe.py
 
 # serve the patched client locally; only /api/* is relayed to the live server
-MOCK_START=1 BLOCK_POST=1 PORT=8777 python3 tools/local_proxy.py   # practice: never touches live
-PORT=8777 python3 tools/local_proxy.py                             # live run
-# http://127.0.0.1:8777/?bot=1&bt=<score>&bn=<nick>&bsub=1&bchar=peccy   (see docs/autopilot.md)
+MOCK_START=1 MOCK_CHUNK_WINDOW=1 BLOCK_POST=1 PORT=8788 python3 tools/local_proxy.py  # practice
+ALLOW_POST_NAME=<nick> ALLOW_POST_MIN_SCORE=<n> PORT=8790 python3 tools/local_proxy.py  # live run
+# http://127.0.0.1:8788/?bot=1&ss=1&bt=777&sfloor=610&sspd=60&sttl=700   (see docs/autopilot.md)
 
 # gate watcher — read-only, never POSTs. Exit 1 means something changed:
 # a new index.pck (re-run the pipeline), seed gone from api/start (rollback),
@@ -71,7 +75,7 @@ python3 tools/watch_gate.py [--baseline]
 
 ## recovered/ is the 2026-08-12 snapshot — the live game is `_dl/extracted/`
 
-**`recovered/*.gd` is no longer byte-identical to `_dl/extracted/scripts/*.decompiled.gd`.** The operator reshipped the client on 08-14 02:16 and 6 of the 8 files changed (`game` 112 lines, `ranking` 54, `main` 16, `ui` 15, `player` 9, `row` 7; `theme_defs` and `sfx` are unchanged). `tools/make_bot_patch.py` already reads `_dl/extracted/`, so builds are unaffected — but **reasoning from `recovered/` produces wrong conclusions.** Re-run the pipeline and read the fresh decompile before making any claim about current behaviour.
+**`recovered/*.gd` is no longer byte-identical to `_dl/extracted/scripts/*.decompiled.gd`.** The operator reships several times a day — most recently 08-14 22:04 (`index.bc05542a.pck`, protocol v4: `game` +chunk seeding, `ranking` +`api/chunk`, `main` +`last_unranked`, `ui` +rep badges). Before that, 08-14 02:16 changed 6 of the 8 files (`game` 112 lines, `ranking` 54, `main` 16, `ui` 15, `player` 9, `row` 7; `theme_defs` and `sfx` are unchanged). `tools/make_bot_patch.py` already reads `_dl/extracted/`, so builds are unaffected — but **reasoning from `recovered/` produces wrong conclusions.** Re-run the pipeline and read the fresh decompile before making any claim about current behaviour.
 
 The changes are all in service of one goal — making a run **reproducible from a seed** — which is what the server's replay verification needs:
 
@@ -104,6 +108,12 @@ A one-line elimination table is in `docs/wt-notes/wt-rng.md`: 7 seedings × 3 `r
 - **Async discipline.** `Main._over_token` is a generation counter re-checked after every `await` so stale coroutines abandon quietly; `ui.gd` does the same with `cur[0] != want` for stale leaderboard responses. Keep that pattern if you patch either file.
 
 ## Leaderboard API and its server-side validation
+
+> **Protocol v4 (2026-08-14 22:04) split the world seed into 25-row chunks — read `docs/leaderboard-api.md` §10 before anything else.** `api/start` now returns `chunk_rows` (25) and only `chunks` 0-1; every later chunk's seed must be earned mid-run with `POST api/chunk {token, i, ticks, char, trace}`, and the server **replays the trace** to check you reached the previous chunk. Miss a seed and `Game._ensure_chunk` falls back to a local seed after 420 ticks, sets `unranked`, and the client refuses to submit that run.
+>
+> Three consequences for the autopilot (`docs/autopilot.md` §10): search rounds must carry the **real** token (so the misfire guard moved out of the game into the proxy's `ALLOW_POST_NAME`/`ALLOW_POST_MIN_SCORE`); **row generation must never be delayed by even one tick** (a row created a tick late misses one `step()` and the world diverges — a 438-row prefix replayed to 241 rows), so freeze whole ticks before a chunk boundary instead, which is simulation-invisible; and **`api/chunk` grants exactly 25 seeds per token** — the ceiling is the *grant count*, not the chunk index, so 25 grants x 25 rows + the 2 pre-issued chunks = **row 674 is one token's hard ceiling** (~730-770 points at the observed 8-14% bonus rate). Waste a grant and you lose 25 rows: one run burned 18 grants re-fetching the same chunk because a round-abort path skipped `_search_reap_chunks()`. A per-IP window sits on top of that (two runs 45 min apart used 50 grants, after which fresh tokens got only 4-5), so **never batch attempts back to back** (`docs/leaderboard-api.md` §10.3.1).
+>
+> **Always give the search an exit for "target not reached": `sfloor=<score>`.** On 08-15 00:04 a run reached a registerable 630 rows / 681 points and the harness discarded it because it was configured to submit only at 777. That trace lived only in browser memory (`docs/submissions-log.md` session H).
 
 > **As of 2026-08-14 the only way to put a score on the board is to actually cross the rows.** The server reseeds the world from `api/start`'s `seed`, replays the submitted `trace`, and computes **both `rows` and `score`** itself. Inflating `score` within the old `score <= rows*2+40` slack is dead: `503 / rows 240` and `200 / rows 85` were both `403 rejected`, while honest `200 / rows 188` from the same client passed. Everything below about buying score with token age is **history** — read `docs/leaderboard-api.md` §8 first, then `docs/autopilot.md` for the only live path.
 >

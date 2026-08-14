@@ -10,8 +10,11 @@ __pycache__/
 tools/.gate_baseline.json
 
 # 패치된 pck는 재생성물이다 (tools/pack.py + patch/*.gd). 원본 백업도 커밋하지 않는다.
-_local/index.241563a7.pck
+# 파일명이 배포마다 바뀌므로(08-14: 241563a7 -> bc05542a) 패턴으로 막는다.
+_local/index.*.pck
 _local/index.orig.pck
+# `?brep=1`이 먹이는 합성 trace — 로컬 전용이다 (bot_game.part.gd의 주석 참조)
+_local/trace.json
 
 # 병렬 세션용 워크트리
 .worktrees/

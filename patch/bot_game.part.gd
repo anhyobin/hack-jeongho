@@ -686,6 +686,12 @@ func _bot_after_death() -> void:
 				str(dr.ambush_armed), str(dr.ambush_done), info])
 	if not bot_submit or bot_submitted or bot_name == "":
 		return
+	# 프로토콜 v4: 청크 시드를 서버에서 못 받아 로컬 대체 시드로 만든 월드를 달린
+	# 주행이다. 서버는 그 월드를 재현할 수 없으므로 제출은 반드시 거부되고, 토큰만
+	# 태우면서 그 닉네임에 "위조 시도 이력"을 남긴다(`leaderboard-api.md` §9.2).
+	if unranked:
+		print("[bot] 제출 안 함: 맵을 서버에서 못 받은 판이다(unranked)")
+		return
 	var rows_v := rows_crossed()
 	var sc := score()
 	if sc < bot_target:
@@ -715,4 +721,5 @@ func _bot_after_death() -> void:
 			print("[bot] 거부됐다 — 다시 주행한다")
 			main.retry()
 	, CONNECT_ONE_SHOT)
-	main.ranking.submit(bot_name, sc, rows_v, main.last_char, main.last_ticks, main.last_trace)
+	main.ranking.submit(bot_name, sc, rows_v, main.last_char, main.last_ticks,
+			main.last_trace, main.last_unranked)
