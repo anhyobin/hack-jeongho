@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A reverse-engineering workspace for a **live third-party web game** — not an application to build. It contains (a) the recovered source of that game and (b) the Python toolchain that recovered it. There is no build system and no test suite. The primary deliverable is `GAME_STRUCTURE.md` (1,190 lines), a line-accurate analysis of the game.
+A reverse-engineering workspace for a **live third-party web game** — not an application to build. It contains (a) the recovered source of that game, (b) the Python toolchain that recovered it, and (c) `patch/` — the recovered source with an autopilot spliced in, repacked into a runnable `index.pck`. There is no build system and no test suite. The primary deliverable is `GAME_STRUCTURE.md` (1,190 lines), a line-accurate analysis of the game.
 
 The workspace is tracked in the **private** repo `anhyobin/hack-jeongho` (branch `main`). Keep it private — `recovered/` is derived from another author's code. The game binaries (`_dl/index.pck`, `_dl/index.js`, `_dl/extracted/`) are gitignored and must be re-downloaded to re-run the pipeline.
 
@@ -32,6 +32,18 @@ python3 tools/board_probe.py <wait_seconds> <score> [rows] [name] [char]
 # leaderboard: mint N tokens up front, retry one target score at escalating ages
 # (default ages 480,600,720 — stops at the first acceptance)
 python3 tools/submit_target.py <score> <name> [char] [ages] [rows]
+
+# repack the pck with an autopilot spliced into game.gd/main.gd (docs/autopilot.md)
+python3 tools/pack.py --verify          # sanity: rebuilding the original must be byte-identical
+python3 tools/make_bot_patch.py         # decompiled source + patch/bot_*.part.gd -> patch/*.gd
+python3 tools/pack.py -o _local/index.241563a7.pck \
+        --text scripts/game.gd=patch/game.gd --text scripts/main.gd=patch/main.gd
+# then update "index.241563a7.pck" in _local/index.html's fileSizes to the new byte size
+
+# serve the patched client locally; only /api/* is relayed to the live server
+MOCK_START=1 BLOCK_POST=1 PORT=8777 python3 tools/local_proxy.py   # practice: never touches live
+PORT=8777 python3 tools/local_proxy.py                             # live run
+# http://127.0.0.1:8777/?bot=1&bt=<score>&bn=<nick>&bsub=1&bchar=peccy   (see docs/autopilot.md)
 
 # gate watcher — read-only, never POSTs. Exit 1 means something changed:
 # a new index.pck (re-run the pipeline), seed gone from api/start (rollback),
@@ -62,6 +74,10 @@ Comments are **unrecoverable** (the tokenizer never stores them). Every statemen
 - **Async discipline.** `Main._over_token` is a generation counter re-checked after every `await` so stale coroutines abandon quietly; `ui.gd` does the same with `cur[0] != want` for stale leaderboard responses. Keep that pattern if you patch either file.
 
 ## Leaderboard API and its server-side validation
+
+> **As of 2026-08-14 the only way to put a score on the board is to actually cross the rows.** The server reseeds the world from `api/start`'s `seed`, replays the submitted `trace`, and computes **both `rows` and `score`** itself. Inflating `score` within the old `score <= rows*2+40` slack is dead: `503 / rows 240` and `200 / rows 85` were both `403 rejected`, while honest `200 / rows 188` from the same client passed. Everything below about buying score with token age is **history** — read `docs/leaderboard-api.md` §8 first, then `docs/autopilot.md` for the only live path.
+>
+> Two further rules from that session: **`ok: true` does not mean the entry was stored** (3 of 6 POSTs were silently dropped — §8.2 has the two-gate model: a human-plausible `trace[0][0]`, and `elapsed - ticks/60` under ~15s), and **the response's `rank` is unreliable** (a stored #1 came back as `rank 4`).
 
 > **Serialize the POST body exactly the way Godot does, or nothing you send will ever be accepted.** Since the operator's 2026-08-13 night patch, the server fingerprints the raw body: `JSON.stringify` in Godot **sorts keys** and emits **no whitespace** after `:` or `,`, so the client always sends `{"char":...,"name":...,"rows":...,"score":...,"token":...}`. Python's `json.dumps` default (insertion order, `", "` / `": "`) is answered `403 {"error": "rejected", "hint": "stale"}` regardless of how valid the score is — `stale` means "your client doesn't look current", not "your token is old". `tools/submit_target.py:godot_json()` is the canonical form; never "tidy up" its separators or drop the sort. The rules below still hold once the body form is right.
 
@@ -110,4 +126,6 @@ Two facts make the boundary cheap to search: a rejection **creates no leaderboar
 
 Every request here hits a service someone else runs — a single-threaded Python process, with `/api/*` set to `no-cache` so nothing is absorbed by the CDN edge. Keep request volume low and serialized. There is **no delete endpoint** in the public API: a submitted score cannot be withdrawn, so treat each POST as permanent and submit the minimum needed.
 
-**A single `GET api/scores` is not proof the board changed.** On 08-13 the endpoint returned the same list shifted past its top 11 entries for ~2 minutes and then reverted — it read exactly like a purge of every score above 640. Before concluding an entry was removed, diff the response against a saved snapshot: if the overlap matches record-for-record at an offset, nothing was deleted. Re-poll before acting, and never let one reading trigger a resubmission.
+**A single `GET api/scores` is not proof the board changed — and re-polling the same URL is not either.** CloudFront serves stale copies of that exact URL (`x-cache: Error from cloudfront`) even though the response carries `cache-control: no-cache`. On 08-14 this cost 30 minutes: two re-polls and a `?char=` query all agreed our fresh entry was missing, while it had been stored all along. **Always append a cache buster — `curl -s ".../api/scores?cb=$RANDOM"`** — or read the `scores` array out of the POST response, which is never cached. The 08-13 "top 11 entries missing" window was most likely the same edge behaviour. Diff against a saved snapshot before concluding anything was deleted, and never let one reading trigger a resubmission.
+
+**Check for another session before you start: `pgrep -f local_proxy.py`.** On 08-14 two sessions worked this workspace at the same time, sharing port 8777, the `_local/` copy and the origin IP — one of them silently served the other's live run mock `api/start` responses. Both sessions also independently posted a `200 / rows ~190` entry under the same nickname, and the log initially mis-attributed both to one session (`docs/submissions-log.md` session G). Attribute board entries by comparing `ts` against your own token epochs, not by score.

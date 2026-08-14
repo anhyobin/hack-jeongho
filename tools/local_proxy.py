@@ -15,8 +15,18 @@ Emscripten이 초기화 시점에 `fetch`/`XMLHttpRequest` 참조를 캡처하�
     OVERRIDE_SCORE  점수 (정수, 또는 `x2`처럼 rows 배수)
     OVERRIDE_ROWS   rows
 
-바디는 Godot의 `JSON.stringify`와 동일하게 **키 정렬 + 공백 없음**으로 재직렬화한다
-(서버가 이 형태를 지문으로 검사한다 — `docs/leaderboard-api.md` §6).
+연습용 스위치. 자동 조종을 다듬는 동안 실서버를 건드리지 않기 위한 것이다 —
+`api/start`에는 IP 단위 발급 제한("too many starts")이 있고 제출에는 빈도 제한이 있다.
+
+    MOCK_START=1    `api/start`를 실서버로 보내지 않고 매번 다른 시드로 응답한다
+    BLOCK_POST=1    POST를 중계하지 않고 로컬에서 거부한다
+
+**오버라이드가 하나도 없으면 POST 바디를 바이트 그대로 중계한다.** 서버가 바디 형태를 지문으로
+검사하므로(`docs/leaderboard-api.md` §6) 손대지 않는 것이 항상 안전하다. 오버라이드를 쓸 때만
+Godot의 `JSON.stringify`와 동일하게 **키 정렬 + 공백 없음**으로 재직렬화한다.
+
+08-14 패치 이후 `score`·`rows` 오버라이드는 서버 재현 검증에 막힌다(§8.1). 남은 용도는
+`OVERRIDE_NAME` 정도다.
 
 사용법:
     PORT=8777 OVERRIDE_NAME=사랑해요정호님 OVERRIDE_SCORE=x2 python3 tools/local_proxy.py
@@ -30,6 +40,9 @@ PORT = int(os.environ.get("PORT", "8777"))
 
 MIME = {".html": "text/html", ".js": "text/javascript", ".wasm": "application/wasm",
         ".pck": "application/octet-stream", ".png": "image/png"}
+
+
+_mock_n = 0
 
 
 def godot_json(payload):
@@ -65,6 +78,21 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+        if path == "/api/start" and os.environ.get("MOCK_START"):
+            global _mock_n
+            _mock_n += 1
+            seed = 1000000000000000 + _mock_n * 7919 + PORT * 104729
+            data = godot_json({"token": "MOCK.%d" % _mock_n,
+                               "seed": str(seed)}).encode("utf-8")
+            log(f"  GET  /api/start -> 모의 seed={seed}")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-cache")
+            self._common_headers()
+            self.end_headers()
+            self.wfile.write(data)
+            return
         if path.startswith("/api/"):
             code, data = self._upstream(self.path, "GET")
             log(f"  GET  {self.path} -> {code} {data[:120].decode('utf-8','replace')}")
@@ -98,6 +126,12 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(n)
         if self.path.split("?")[0] == "/api/scores":
+            log(f"  바디({len(raw)}B): {raw[:180].decode('utf-8','replace')}")
+        # 오버라이드가 하나도 없으면 재직렬화하지 않는다 — 서버가 바디 형태를 지문으로
+        # 검사하므로(§6) 손대지 않는 것이 항상 안전하다.
+        if self.path.split("?")[0] == "/api/scores" and any(
+                os.environ.get(k) for k in
+                ("OVERRIDE_NAME", "OVERRIDE_ROWS", "OVERRIDE_SCORE", "OVERRIDE_TRACE")):
             try:
                 d = json.loads(raw.decode("utf-8"))
                 orig = dict(d)
@@ -125,6 +159,16 @@ class H(BaseHTTPRequestHandler):
                     f"name={d.get('name')}")
             except Exception as e:
                 log(f"  바디 파싱 실패: {e}")
+        if os.environ.get("BLOCK_POST"):
+            data = b'{"ok":false,"error":"blocked-locally"}'
+            log(f"  POST {self.path} -> 로컬에서 차단 (중계하지 않음)")
+            self.send_response(403)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self._common_headers()
+            self.end_headers()
+            self.wfile.write(data)
+            return
         code, data = self._upstream(self.path, "POST", raw)
         log(f"  POST {self.path} -> {code} {data[:200].decode('utf-8','replace')}")
         self.send_response(code)

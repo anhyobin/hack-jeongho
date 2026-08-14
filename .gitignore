@@ -8,3 +8,7 @@ __pycache__/
 # Playwright MCP 세션 산출물 (진단용 스냅샷/콘솔 로그)
 .playwright-mcp/
 tools/.gate_baseline.json
+
+# 패치된 pck는 재생성물이다 (tools/pack.py + patch/*.gd). 원본 백업도 커밋하지 않는다.
+_local/index.241563a7.pck
+_local/index.orig.pck
