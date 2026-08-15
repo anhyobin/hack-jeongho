@@ -11,7 +11,7 @@
 | [`submissions-log.md`](submissions-log.md) | 라이브 서버에 보낸 모든 쓰기 요청의 감사 기록. 삭제 API가 없으므로 남긴 항목은 되돌릴 수 없다. |
 | [`autopilot.md`](autopilot.md) | 재패킹한 자동 조종과 **체크포인트 탐색** — 보드에 점수를 올리는 유일한 실주행 경로. §12에 매 주행 전 체크리스트가 있다. |
 | [`toolchain.md`](toolchain.md) | GDPC/GDSC/ECFG 포맷과 언팩·디컴파일 파이프라인 재실행 절차, 함정들. |
-| [`페키-회귀록.md`](페키-회귀록.md) | 첫날부터 지금까지를 병맛으로 옮긴 것 — **연재 중**(17화, 완결 예정 월요일 저녁). 숫자는 전부 실측값이고 마지막 절이 교훈 9개다. 팀 공유용. |
+| [`핵정호전.md`](핵정호전.md) | 「나 혼자만 고라니를 못 피한다」 — 핵정호의 일대기를 3류 웹소설로 옮긴 것. **연재 중**(17화 + 프롤로그, 완결 예정 월요일 저녁). 숫자는 전부 실측값. 팀 공유용. |
 | `wt-notes/` | 병행 워크트리의 작업 노트 — `wt-rng.md`(Godot RNG 이식, 7×3 배제표), `wt-search.md`, `wt-bot.md`, `wt-COMMON.md`. |
 | `snapshots/` | 리더보드 원본 스냅샷 — `board-before.json`(작업 전), `board-after.json`(08-12 22:00), `board-after-3000.json`(08-13 01:07), `board-after-10001.json`(08-13 13:17), `board-window-anomaly-1315.json`(상위 11개가 빠져 보였던 이상 응답). |
 
