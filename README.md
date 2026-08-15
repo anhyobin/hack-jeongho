@@ -2,37 +2,64 @@
 
 브라우저 게임 **고라니 피하기**(`https://d15csla760jzen.cloudfront.net/`)를 역공학한 기록이다.
 Godot 4.7.1 HTML5 익스포트에서 게임 소스 1,880줄을 100% 복원하고, 소스가 없는 랭킹 서버의
-검증 규칙을 실측으로 확정한 뒤, 그 규칙을 만족시키는 점수를 실제로 등록했다.
+검증 규칙을 실측으로 확정한 뒤, 그 서버가 재현해 확인하는 점수를 실제로 등록했다.
+운영자가 사흘 동안 다섯 번 패치하며 막았고, 그 대응 과정이 이 저장소의 절반이다.
 
-배포된 `index.pck` 하나에서 출발해 다음 세 가지를 얻었다.
+배포된 pck 하나에서 출발해 다음 네 가지를 얻었다.
 
 1. **게임 전체 소스** — `.gdc`(GDScript 바이너리 토큰) 8개를 원본 줄번호까지 보존해 복원 (`recovered/`)
 2. **게임 구조 분석** — 점수 산식, 난이도 곡선과 그 상한, 사망 판정, 서버 계약 (`GAME_STRUCTURE.md`, 1,190줄)
-3. **서버 검증 규칙** — 응답 문자열과 통과·거부 경계를 관측해 유도 (`docs/leaderboard-api.md`)
+3. **서버 검증 규칙** — 응답 문자열과 통과·거부 경계를 관측해 유도 (`docs/leaderboard-api.md`, §1~§11)
+4. **재패킹한 자동 조종** — pck에 봇과 체크포인트 탐색 하네스를 심어 실제로 주행 (`patch/`, `docs/autopilot.md`)
 
-> **현황 (2026-08-14 16:01): `야호정호 602점`으로 1위. 방법은 체크포인트 백트래킹이다.**
-> 죽은 지점을 되감아 고속 재생으로 상태를 복원하고 다른 갈래로 이어 붙인다 — "550행을 한 번에"가
-> "10~20행씩 여러 번"이 된다. 실서버 접촉은 `api/start` 1회 + `POST` 1회뿐이었다
-> → [`docs/autopilot.md`](docs/autopilot.md) §8
+> **현황 (2026-08-15 11:15): `정호야호 500점`으로 1위** (`rows 466`, `verified: true`,
+> `rep 0` 정상). 방법은 **체크포인트 백트래킹**이다 — 죽은 지점을 되감아 고속 재생으로 상태를
+> 복원하고 다른 갈래로 이어 붙인다. "450행을 한 번에"가 "10~20행씩 여러 번"이 된다
+> → [`docs/autopilot.md`](docs/autopilot.md) §8·§11
 >
-> 그리고 서버가 항목마다 **어뷰징 점수 `rep`** 를 매기기 시작했다(50건 전수 소급). 우리 602점은
-> `rep 0`(정상)이지만, 부풀리기를 시도했던 `사랑해요정호님`의 항목들은 **"위조 시도 이력"** 으로
-> `rep 2~3`이 됐다 → [`docs/leaderboard-api.md`](docs/leaderboard-api.md) §9
+> **08-15 아침에 운영자가 보드를 초기화했다.** 그 전의 항목(우리 `777`·`800`·`602`, 남의
+> `화이트해커30000` 등)은 전부 사라졌다. 초기화는 서버가 들고 있던 `rep` 낙인까지 지운 것으로
+> 보인다 → [`docs/leaderboard-api.md`](docs/leaderboard-api.md) §11.4
 >
-> 그리고 월드를 **파이썬으로 재현**하는 데도 성공했다(`tools/sim.py`, 실제 주행을 사망 틱까지
-> 일치). 오프라인 빔 탐색으로 600점 trace를 4분에 합성하고 엔진 채점으로 교차 검증했다 —
-> 제출에는 아직 쓰지 않았다 → [`docs/autopilot.md`](docs/autopilot.md) §9
+> **점수를 만드는 방법은 실제로 행을 넘는 것뿐이다.** 운영자는 사흘 동안 다섯 번 패치했다 —
+> 바디 직렬화 지문(08-13 밤, §6) → 시드로 `trace`를 재현해 `rows`·`score`를 직접 계산(08-14
+> 02:16, §7·§8) → 어뷰징 배지 `rep`(08-14 저녁, §9) → 월드 시드를 25행 청크로 분할(08-14
+> 22:04, v4, §10) → 청크 대기를 게임 안으로 이동 + 토큰 신선도 600초(08-15 08:28, v5, §11).
+> 대기 시간으로 점수를 사는 아래 §"서버 검증 규칙(역사)"의 전략은 두 번째 패치로 끝났다.
 >
-> **점수를 만드는 방법은 실제로 행을 넘는 것뿐이다.** 운영자가 세 번 패치했다 — 08-13 밤에 바디
-> 직렬화 형태를 지문으로 검사하고(§6), 08-14 02:16에 시드로 `trace`를 재현해 `rows`·`score`를
-> 직접 계산하고(§7·§8), 그날 저녁에 어뷰징 점수 `rep`을 붙였다(§9). 대기 시간으로 점수를 사는
-> 아래 §"결론"의 전략은 두 번째 패치로 끝났다.
+> 월드를 **파이썬으로 재현**하는 데도 성공했지만(`tools/sim.py`, 실제 주행을 사망 틱까지 일치),
+> **v4의 청크 분할로 그 경로는 닫혔다** — `sim.py`·`solve.py`는 단일 시드 모델이라 24행까지만
+> 맞는다. Godot 난수 이식 자체는 여전히 정확하다(`rng_probe.py` `exit 0`)
+> → [`docs/autopilot.md`](docs/autopilot.md) §12.4
 
-## 결론 (2026-08-14 02:16 패치 이전)
+## 지금 서버는 무엇으로 막고 있나 (프로토콜 v5, 08-15)
 
-아래 표는 **패치 이전** 서버를 기술한다. 지금은 ④까지 통과해도 서버가 trace를 재현해
-`rows`·`score`를 다시 계산하므로, 부풀린 값은 전부 `403 rejected`다. 현재 유효한 규칙은
-[§8](docs/leaderboard-api.md)에, 실제로 점수를 내는 방법은 [`docs/autopilot.md`](docs/autopilot.md)에 있다.
+| 관문 | 내용 | 도입 |
+|---|---|---|
+| ① 바디 지문 | POST 바디가 Godot `JSON.stringify` 형태(**키 정렬 + 공백 없음**)여야 한다. 아니면 `403 rejected / hint: stale` | 08-13 밤 |
+| ② 재현 검증 | 서버가 `api/start`의 시드로 월드를 다시 만들고 제출된 `trace`를 재생해 **`rows`와 `score`를 직접 계산한다.** 클라이언트가 보낸 값은 참고하지 않는다 | 08-14 02:16 |
+| ③ 청크 시드 | 월드 시드가 **25행 단위**로 쪼개져 있고, 앞 청크를 실제로 통과해야 다음 시드를 `POST api/chunk`로 받는다. **오프라인 선계산 불가** | 08-14 22:04 (v4) |
+| ④ 대기·토큰 | 시드를 **15초** 안에 못 받으면 그 판은 영구 `unranked`. 토큰은 **600초**가 지나면 낡은 것으로 취급되어 재발급된다 | 08-15 08:28 (v5) |
+| ⑤ 요청 스로틀 | `api/chunk`·`api/scores` 모두 IP 단위 `429 too fast` | v5에서 `api/chunk`까지 확대 |
+| ⑥ `rep` 배지 | `verified`와 **별개로** 항목마다 어뷰징 판정(0 정상 ~ 3 봇 의심)과 이유 문구를 붙인다 | 08-14 저녁 |
+| 실질적 의미 | 점수는 **실제로 행을 건너서만** 나온다. 남은 자유도는 "얼마나 잘 플레이하는가" 하나뿐이다 | |
+
+사람의 최고 기록은 `민지 401점`, 완전정보 봇의 **1회 주행** 최대 도달은 354행이다
+([`docs/autopilot.md`](docs/autopilot.md) §6) — 즉 한 번에 달려서는 사람을 못 넘는다.
+체크포인트 백트래킹이 그 벽을 넘는 방법이고, 그것으로 466~736행을 통과했다.
+
+v5에서 흥미로운 일이 하나 있었다. 운영자가 청크 대기를 `_sim_tick` 맨 위로 옮겨 **틱을
+통째로 얼리게** 고쳤는데, 그것은 우리가 v4에서 "행 생성을 한 틱도 늦추면 서버의 재현과
+갈라진다"는 것을 알아내고 손으로 만들어 넣었던 조건과 정확히 같다. 덕분에 우리 하네스가
+오히려 단순해졌다 → [`docs/leaderboard-api.md`](docs/leaderboard-api.md) §11.1
+
+## 서버 검증 규칙 — 08-14 02:16 패치 이전 (역사)
+
+아래 표는 **패치 이전** 서버를 기술한다 — 지금은 성립하지 않지만, 이 저장소의 절반이 이 표를
+알아내는 과정이었으므로 남긴다. 지금은 네 검사를 모두 통과해도 서버가 `trace`를 재현해
+`rows`·`score`를 다시 계산하므로 부풀린 값은 전부 `403 rejected`다. 현재 유효한 규칙은
+[`docs/leaderboard-api.md`](docs/leaderboard-api.md) §8~§11에, 실제로 점수를 내는 방법은
+[`docs/autopilot.md`](docs/autopilot.md)에 있다.
 
 | 항목 | 내용 |
 |---|---|
@@ -151,61 +178,95 @@ Godot 4.7.1 HTML5 익스포트에서 게임 소스 1,880줄을 100% 복원하고
 ```
 GAME_STRUCTURE.md        게임 구조 분석 정본 (1,190줄). 모든 수치에 file.gd:LINE 인용
 CLAUDE.md                이 워크스페이스에서 작업할 때의 규칙과 함정
-unpacked_manifest.txt    index.pck 110개 엔트리 목록
+unpacked_manifest.txt    index.pck 엔트리 목록 (08-15 빌드 118개. 08-12에는 110개였다)
 
-recovered/               복원한 게임 스크립트 8개 (원본 줄번호 보존, 정본)
+recovered/               복원한 게임 스크립트 8개 — **2026-08-12 스냅샷**, 복원 기록으로 보존
+                         (라이브 소스는 _dl/extracted/. 여기서 추론하면 틀린 결론이 나온다)
 patch/                   복원 소스에 오토파일럿을 끼운 것 — pck에 다시 심는 평문 스크립트
   bot_game.part.gd       봇 본체 (구간 계획·비상 판단·제출). game.gd 뒤에 붙는다
-  bot_main.part.gd       자동 시작·재시도·제출 성공 시 정지. main.gd 뒤에 붙는다
-  game.gd, main.gd       위 둘을 디컴파일 결과에 합성한 산출물 (make_bot_patch.py가 생성)
+  bot_main.part.gd       자동 시작·재시도·토큰 보호. main.gd 뒤에 붙는다
+  bot_search.part.gd     **체크포인트 탐색 하네스** — 되감기·고속 재생·청크 게이트·페이싱·제출
+  game.gd, main.gd       위 셋을 디컴파일 결과에 합성한 산출물 (make_bot_patch.py가 생성)
 docs/
-  leaderboard-api.md     서버 검증 규칙 실측 결과 — 정적 분석으로 얻을 수 없는 정보
-  autopilot.md           pck 재패킹으로 게임 안에 봇을 심는 방법과 게임 내부 규칙
-  submissions-log.md     라이브 서버에 보낸 모든 쓰기 요청 감사 기록
+  README.md              docs 색인과 한 줄 현황
+  leaderboard-api.md     서버 검증 규칙 실측 결과 (§1~§11, 프로토콜 v3→v4→v5)
+  autopilot.md           봇을 pck에 심는 방법, 체크포인트 탐색, **§12 매 주행 전 체크리스트**
+  submissions-log.md     라이브 서버에 보낸 모든 쓰기 요청 감사 기록 (세션 A~I)
   toolchain.md           GDPC/GDSC 포맷과 파이프라인 재실행 절차
-  wt-notes/              병렬 워크트리 지시서와 각 세션의 작업 기록
+  wt-notes/              병렬 워크트리 지시서와 각 세션의 작업 기록 (RNG 배제표 등)
   snapshots/             리더보드 원본 스냅샷 (작업 전 / 08-12 22:00 / 08-13 01:07 / 13:17 / 이상 응답)
 tools/                   언팩·디컴파일·재패킹·프록시·프로브 스크립트
+  unpack.py              GDPC 언팩 (_dl/ 사본과 바이트 동일)
+  gdc_decompile.py       .gdc 디컴파일러. leftover=0 이 복원 완전성의 근거다
+  inspect_assets.py      project.binary 설정 + 스프라이트·오디오 목록
   pack.py                GDPC 재패커. --verify 로 원본 바이트 복원을 검증한다
   make_bot_patch.py      디컴파일 원본에 봇을 합성 (원본 줄은 건드리지 않는다)
-  sim.py                 게임 시뮬레이션의 파이썬 포팅 (실제 주행을 사망 틱까지 재현)
-  rng_probe.py           Godot 4.7.1 난수 판정 — 시딩 7종 × randf 3종 격자
-  solve.py               빔 탐색으로 목표 점수 trace 합성
-  local_proxy.py         로컬 서비스 + /api/* 중계 (연습 모드·바디 덤프)
+  local_proxy.py         로컬 서비스 + /api/* 중계. 연습 모의(MOCK_*)와 제출 가드(ALLOW_POST_*)
+  rng_probe.py           Godot 4.7.1 난수 판정 — 시딩 7종 × randf 3종 격자. exit 0 이어야 한다
+  sim.py                 게임 시뮬레이션의 파이썬 포팅 — ⚠ 단일 시드 모델이라 v4 이후 실주행 불가
+  solve.py               빔 탐색으로 목표 점수 trace 합성 — ⚠ 같은 이유로 실주행 불가
+  watch_gate.py          배포·시드·보드 변화 감시 (읽기 전용, --baseline 으로 기준 저장)
+  board_probe.py         단발 제출 프로브 (08-14 이전 규칙 측정용, 역사)
+  submit_target.py       토큰 대량 발급 후 나이를 올려 재시도 (역사). godot_json()이 바디 정본
+  submit_run.py          옛 2단계 제출기 (역사)
+  chunk_probe.py         ⚠ api/chunk 프로브. **합성 trace를 보낸 기록** — 헤더를 먼저 읽을 것
+  js/autopilot.js        브라우저 콘솔용 초기 시제품 (Emscripten이 fetch를 미리 잡아 실패)
 _dl/                     다운로드 작업 디렉터리 (게임 바이너리는 .gitignore)
 _local/                  로컬 서비스용 클라이언트 사본 (패치된 pck는 재생성물이라 .gitignore)
+  prev_decomp/           직전 배포의 디컴파일 사본 — 다음 배포와 diff 하는 기준점 (.gitignore)
 ```
 
 ## 재현
 
 **Python 3.14+ 필요** — `gdc_decompile.py`가 `from compression import zstd`(3.14 stdlib)를 쓴다.
 
+pck 파일명은 **배포마다 바뀐다**(내용 주소). 하드코딩하지 말고 페이지에서 읽는다.
+
 ```bash
-cd _dl && curl -O https://d15csla760jzen.cloudfront.net/index.pck
+# 0. 다음 배포와 비교할 기준을 먼저 남긴다 — unpack.py 가 extracted/ 를 갈아엎는다
+mkdir -p _local/prev_decomp && cp _dl/extracted/scripts/*.decompiled.gd _local/prev_decomp/
 
-python3 unpack.py > ../unpacked_manifest.txt      # GDPC 언팩 -> _dl/extracted/ (110개)
-cd extracted/scripts && python3 ../../gdc_decompile.py *.gdc   # .gdc -> .decompiled.gd
+# 1. 현재 배포된 pck 이름을 페이지에서 읽어 내려받는다
+cd _dl && curl -s "https://d15csla760jzen.cloudfront.net/?cb=$RANDOM" -o index.html
+PCK=$(grep -o 'index\.[0-9a-f]*\.pck' index.html | head -1)
+curl -s "https://d15csla760jzen.cloudfront.net/$PCK?cb=$RANDOM" -o index.pck
 
-python3 tools/board_probe.py <대기초> <score> [rows] [name] [char]   # 단발 프로브
-python3 tools/submit_target.py <score> <name> [char] [나이,목록] [rows]  # 08-14 이전용 스케줄러
+# 2. 언팩 → 디컴파일 → 직전 빌드와 diff (프로토콜 변화가 여기서 보인다)
+rm -rf extracted && python3 unpack.py > ../unpacked_manifest.txt
+cd extracted/scripts && python3 ../../gdc_decompile.py *.gdc     # leftover=0 이 8개여야 한다
+cd ../../.. && for f in game main player ranking row sfx theme_defs ui; do
+  diff -u _local/prev_decomp/$f.decompiled.gd _dl/extracted/scripts/$f.decompiled.gd; done
 ```
 
-현재 점수를 등록하려면 실제로 플레이해야 한다. 게임 안에 봇을 심어 돌린다
-([`docs/autopilot.md`](docs/autopilot.md)).
+점수를 등록하려면 실제로 플레이해야 한다. 게임 안에 봇을 심어 돌린다
+([`docs/autopilot.md`](docs/autopilot.md)). **관문 다섯 개를 통과한 뒤에 실서버로 간다**
+— 순서와 통과 기준은 [`docs/autopilot.md`](docs/autopilot.md) §12에 있다.
 
 ```bash
+# 저장소 루트에서. 위 블록과 다른 셸이면 pck 이름을 다시 읽는다
+PCK=$(grep -o 'index\.[0-9a-f]*\.pck' _dl/index.html | head -1)
+
+python3 tools/rng_probe.py          # 난수 이식 정답지 (exit 0)
 python3 tools/pack.py --verify      # 원본 재패킹 → 바이트 동일 (포맷 검증)
 python3 tools/make_bot_patch.py     # 디컴파일 결과 + 봇 → patch/{game,main}.gd
-python3 tools/pack.py -o _local/index.241563a7.pck \
+python3 tools/pack.py -o _local/$PCK \
         --text scripts/game.gd=patch/game.gd --text scripts/main.gd=patch/main.gd
 #   _local/index.html의 fileSizes를 새 pck 크기로 고칠 것
 
-MOCK_START=1 BLOCK_POST=1 PORT=8777 python3 tools/local_proxy.py   # 연습 (실서버 무접촉)
-PORT=8777 python3 tools/local_proxy.py                            # 본 주행
-#   http://127.0.0.1:8777/?bot=1&bt=200&bn=<닉네임>&bsub=1&bchar=peccy
+# 연습 (실서버 무접촉). 마지막 것은 청크 벽을 모의해 요청 총량을 확인하는 관문이다
+MOCK_START=1 MOCK_CHUNK_WINDOW=1 BLOCK_POST=1 PORT=8810 python3 tools/local_proxy.py
+MOCK_START=1 MOCK_CHUNK_WINDOW=1 MOCK_CHUNK_MAX=8 BLOCK_POST=1 PORT=8814 python3 tools/local_proxy.py
+#   관문: /?bot=1&sv=1&bt=120&sspd=25      재생 동일성 + 변이 재생
+#   연습: /?bot=1&ss=1&bt=520&sfloor=500&sspd=60&sttl=300
+
+# 본 주행. 제출 가드는 게임 밖에 둔다 — 조건에 맞지 않는 POST는 중계하지 않는다
+ALLOW_POST_NAME=<닉네임> ALLOW_POST_MIN_SCORE=<하한> PORT=8816 python3 tools/local_proxy.py
+#   /?bot=1&ss=1&bt=500&sfloor=400&sspd=60&sttl=300&bn=<닉네임>&bsub=1&bchar=peccy
 ```
 
 `gdc_decompile.py`가 출력하는 `leftover=0`이 복원 완전성의 근거다. 0이 아니면 그 출력은 신뢰할 수 없다.
+그리고 **`pgrep -f local_proxy.py`로 다른 세션의 점유를 먼저 확인한다** — 08-14에 두 세션이
+같은 포트와 출처를 공유해 한쪽 주행에 모의 응답이 섞여 들어간 사고가 있었다.
 
 ## 범위
 
