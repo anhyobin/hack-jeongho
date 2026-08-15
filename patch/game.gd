@@ -118,6 +118,8 @@ func _ensure_chunk(idx: int) -> bool:
 
 		rng.seed = hash("local:%d:%d" % [ci, base_seed]) & 4503599627370495
 		unranked = true
+		if main != null and not replay_mode:
+			main.ui.set_unranked_notice(true)
 	cur_chunk = ci
 	if main != null and not replay_mode:
 		main.ranking.want_chunk(ci + 1, input_trace, tick_count, main.last_char)
@@ -135,12 +137,15 @@ func _needs_chunk_wait() -> bool:
 		return false
 	var need_ci: int = maxi(int(cam_row) + 14, 0) / chunk_rows
 	if main.ranking.chunk_seed_of(need_ci) != 0:
+		if wait_since_ms >= 0:
+			main.ui.set_loading_notice(false)
 		wait_since_ms = -1
 		return false
 	main.ranking.want_chunk(need_ci, input_trace, tick_count, main.last_char)
 	var now_ms := Time.get_ticks_msec()
 	if wait_since_ms < 0:
 		wait_since_ms = now_ms
+		main.ui.set_loading_notice(true)
 	if now_ms - wait_since_ms < WAIT_GIVEUP_MS:
 		return true
 
@@ -148,6 +153,9 @@ func _needs_chunk_wait() -> bool:
 	wait_since_ms = -1
 	wait_gave_up = true
 	unranked = true
+	if main != null:
+		main.ui.set_loading_notice(false)
+		main.ui.set_unranked_notice(true)
 	return false
 
 func _gen_row() -> bool:

@@ -114,11 +114,29 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    # 브라우저가 보낸 헤더 중 실서버로 그대로 넘길 것.
+    #
+    # ★ 넘기지 않으면 요청 겉모습이 `User-Agent: Python-urllib/3.x`가 된다. 요청 **내용**은
+    #   진짜 게임이 만든 것인데 겉모습만 스크립트인 상태이고, 서버가 그것을 보기 시작하면
+    #   같은 바디가 거부된다. 08-15 오후에 오전과 **완전히 같은 (청크, 도달 행)** 요청이
+    #   전부 거부되고 제3자는 정상 등록한 것이 이 가설의 출발점이다.
+    #
+    #   `Origin`·`Referer`는 **위조하지 않는다.** 브라우저가 보내는 값(`127.0.0.1:PORT`)을
+    #   그대로 넘길 뿐이고, 서버가 그것으로 막는다면 그건 운영자의 의도적인 통제이므로
+    #   따른다. 아래 목록은 전부 "이 클라이언트가 실제로 무엇인가"를 사실대로 말하는 헤더다.
+    FWD_HEADERS = ("user-agent", "accept", "accept-language", "origin", "referer",
+                   "sec-fetch-site", "sec-fetch-mode", "sec-fetch-dest",
+                   "sec-ch-ua", "sec-ch-ua-mobile", "sec-ch-ua-platform")
+
     def _upstream(self, path, method, body=None):
         req = urllib.request.Request(UPSTREAM + path.lstrip("/"), data=body,
                                      method=method)
         if body is not None:
             req.add_header("Content-Type", "application/json")
+        for k in self.FWD_HEADERS:
+            v = self.headers.get(k)
+            if v:
+                req.add_header(k, v)
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 return r.status, r.read()
@@ -257,8 +275,8 @@ class H(BaseHTTPRequestHandler):
                 head = f"i={d.get('i')} ticks={d.get('ticks')} trace={len(d.get('trace', []))}건"
             except Exception:
                 head = f"{len(raw)}B"
-            log(f"  POST /api/chunk {head} -> {code} "
-                f"{data[:120].decode('utf-8', 'replace')}")
+            log(f"  POST /api/chunk {head} ua={self.headers.get('user-agent','-')[:22]!r}"
+                f" -> {code} {data[:120].decode('utf-8', 'replace')}")
             self._json(code, data)
             return
 

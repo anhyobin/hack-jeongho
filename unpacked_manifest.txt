@@ -1,6 +1,6 @@
 pack_format_version=4 engine=4.7.1 flags=2 file_base=112
-reserved[0:4]= [3420944, 0, 0, 0]
-dir_off= 0x343310
+reserved[0:4]= [3422496, 0, 0, 0]
+dir_off= 0x343920
 file_count= 118
       675  flags=0  magic=b'RSRC'       .godot/exported/133200997/export-3070c538c03ee49b7677ff960a3f5195-main.scn
      1081  flags=0  magic=b'list'       .godot/global_script_class_cache.cfg
@@ -105,13 +105,13 @@ file_count= 118
        97  flags=0  magic=b'[rem'       main.tscn.remap
       886  flags=0  magic=b'ECFG'       project.binary
        39  flags=0  magic=b'[rem'       scripts/game.gd.remap
-    13586  flags=0  magic=b'GDSC'       scripts/game.gdc
+    13800  flags=0  magic=b'GDSC'       scripts/game.gdc
        39  flags=0  magic=b'[rem'       scripts/main.gd.remap
      3187  flags=0  magic=b'GDSC'       scripts/main.gdc
        41  flags=0  magic=b'[rem'       scripts/player.gd.remap
      3627  flags=0  magic=b'GDSC'       scripts/player.gdc
        42  flags=0  magic=b'[rem'       scripts/ranking.gd.remap
-     5387  flags=0  magic=b'GDSC'       scripts/ranking.gdc
+     5879  flags=0  magic=b'GDSC'       scripts/ranking.gdc
        38  flags=0  magic=b'[rem'       scripts/row.gd.remap
     11686  flags=0  magic=b'GDSC'       scripts/row.gdc
        38  flags=0  magic=b'[rem'       scripts/sfx.gd.remap
@@ -119,4 +119,4 @@ file_count= 118
        45  flags=0  magic=b'[rem'       scripts/theme_defs.gd.remap
      3397  flags=0  magic=b'GDSC'       scripts/theme_defs.gdc
        37  flags=0  magic=b'[rem'       scripts/ui.gd.remap
-    20651  flags=0  magic=b'GDSC'       scripts/ui.gdc
+    21497  flags=0  magic=b'GDSC'       scripts/ui.gdc
