@@ -64,8 +64,17 @@ def godot_json(payload):
                       ensure_ascii=False)
 
 
+_t0 = time.time()
+
+
 def log(msg):
-    print(msg, flush=True)
+    """★ 타임스탬프를 반드시 남긴다.
+
+    08-15에 `api/chunk` 요청이 177건 나갔는데, 게임 쪽 로그로는 대기 진입이 1회였다.
+    간격을 몰라서 원인을 특정할 수 없었다 — 6초 간격이면 회차가 많았던 것이고,
+    100ms 간격이면 게이트를 새는 경로가 따로 있는 것이다. 그 구분이 전부다.
+    """
+    print("[%8.3f] %s" % (time.time() - _t0, msg), flush=True)
 
 
 def mock_world_seed(n):

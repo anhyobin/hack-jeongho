@@ -205,11 +205,18 @@ func _search_gate_prefetch(need_ci: int) -> void:
 			search_blocked[k2] = true
 
 func _search_chunk_ok(g, guard: int) -> bool:
-	if not search_live or g.replay_mode:
+	if not search_live:
 		return true
 	var now := Time.get_unix_time_from_system()
 	var need_ci: int = _search_need_ci(g)
+	# ★ 선행 요청 차단은 **재생 중에도** 걸어 둔다. 여기서 재생을 먼저 걸러내면
+	#   `claim_run`이 비운 `_chunk_pending`이 회차 내내 빈 채로 남고, `bot_tick_ok`가
+	#   `_search_handoff`를 부르는 그 틱은 차단 없이 `_sim_tick`으로 들어간다
+	#   (`_search_chunk_ok`가 replay_mode=true인 상태로 통과한 직후 인계가 일어난다).
+	#   회차가 수십 번 도는 탐색에서는 그 한 틱이 회차마다 한 건씩 새어 나간다.
 	_search_gate_prefetch(need_ci)
+	if g.replay_mode:
+		return true
 
 	if ranking.chunk_seed_of(need_ci) != 0:
 		if search_stall_t0 > 0.0 and search_stall_ci == need_ci:
@@ -243,9 +250,15 @@ func _search_chunk_ok(g, guard: int) -> bool:
 
 	var reached: int = g.max_row - g.start_row
 	if search_stall_t0 <= 0.0 or search_stall_ci != need_ci:
+		# ★ 간격 초기화는 **청크가 실제로 바뀔 때만** 한다. `_search_launch`가 회차마다
+		#   `search_stall_t0`을 0으로 되돌리므로, 여기서 무조건 초기화하면 같은 청크를
+		#   두고 회차가 도는 동안 매 회차 한 건씩 즉시 나가서 6초 간격이 무력화된다.
+		#   `search_req_t`는 main에 있어 회차를 넘어 살아남는다 — 그것이 요점이다.
+		var moved: bool = search_stall_ci != need_ci
 		search_stall_ci = need_ci
 		search_stall_t0 = now
-		search_req_t = 0.0       # 새 청크는 간격을 기다리지 않고 즉시 한 번 물어본다
+		if moved:
+			search_req_t = 0.0   # 새 청크는 간격을 기다리지 않고 즉시 한 번 물어본다
 		print("[search] 청크 %d 대기 — 원본이 요청한다 (%d행, 아래끝+%d, 틱 %d, 나이 %.0fs)" % [
 				need_ci, reached, reached - (need_ci - 1) * g.chunk_rows,
 				g.tick_count, age])
@@ -655,7 +668,32 @@ func _search_token_age() -> float:
 		return -1.0
 	return Time.get_unix_time_from_system() - float(int(str(parts[0])))
 
+# ★ 하네스를 내리기 전에 **원본의 청크 요청을 반드시 입막음한다.**
+#
+# `bot_tick_ok`는 `search_mode == "done"`이면 맨 위에서 빠져나가므로 그 뒤로
+# `_search_chunk_ok`가 불리지 않는다 = 요청 간격 제한이 사라진다. 그런데 Game 노드는
+# 아직 살아 있고, 시드가 없으면 원본 `_needs_chunk_wait`가 **매 틱** `want_chunk`를
+# 부른다. 자기 한계(`WAIT_GIVEUP_MS` 15초)를 다 쓸 때까지 프레임마다 한 건씩 나간다.
+#
+# 08-15 실측: 모의 재현에서 종료 직후 **0.07초 간격으로 118건**, 딱 8초간. 실서버에서도
+# 같은 이유로 청크 하나에 87건이 나갔다. 게이트는 정상이었고, 게이트를 치운 뒤에 원본을
+# 방치한 것이 원인이었다.
+#
+# 두 가지를 건다. `_chunk_pending`에 자리를 걸어 `want_chunk`가 즉시 되돌아 나가게 하고,
+# 원본 자신의 포기 플래그를 세워 `_needs_chunk_wait`가 아예 false를 돌려주게 한다.
+# 이 판은 어차피 제출하지 않으므로 `unranked`가 되는 것은 손해가 아니다.
+func _search_hush(g) -> void:
+	if g == null or not is_instance_valid(g):
+		return
+	if search_live:
+		var ci: int = _search_need_ci(g)
+		for k in range(ci, ci + 4):
+			if not ranking.active_chunks.has(k):
+				ranking._chunk_pending[k] = true
+	g.wait_gave_up = true
+
 func _search_finish() -> void:
+	_search_hush(game)
 	search_mode = "done"
 	search_cap = SEARCH_TICK_CAP
 	Engine.time_scale = 1.0
