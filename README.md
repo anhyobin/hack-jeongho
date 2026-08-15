@@ -211,8 +211,12 @@ tools/                   언팩·디컴파일·재패킹·프록시·프로브 �
   submit_run.py          옛 2단계 제출기 (역사)
   chunk_probe.py         ⚠ api/chunk 프로브. **합성 trace를 보낸 기록** — 헤더를 먼저 읽을 것
   js/autopilot.js        브라우저 콘솔용 초기 시제품 (Emscripten이 fetch를 미리 잡아 실패)
-_dl/                     다운로드 작업 디렉터리 (게임 바이너리는 .gitignore)
-_local/                  로컬 서비스용 클라이언트 사본 (패치된 pck는 재생성물이라 .gitignore)
+_dl/                     다운로드 작업 디렉터리. index.pck 와 extracted/ 는 .gitignore
+                         (배포마다 바뀌므로. *.old 사본은 커밋한다)
+_local/                  로컬 서비스용 클라이언트 사본. **엔진과 정적 자산은 커밋한다** —
+                         index.wasm(39.5MB)·index.js·*.png 는 배포마다 바뀌지 않으므로
+                         새로 클론해도 pck 하나만 내려받으면 된다.
+                         패치된 pck(index.*.pck)와 prev_decomp/ 는 재생성물이라 .gitignore
   prev_decomp/           직전 배포의 디컴파일 사본 — 다음 배포와 diff 하는 기준점 (.gitignore)
 ```
 
