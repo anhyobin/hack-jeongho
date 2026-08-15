@@ -17,13 +17,21 @@ Target: **고라니 피하기**, a Godot 4.7.1 HTML5/WebAssembly export served a
 All three analysis scripts use hardcoded relative paths, so the working directory matters:
 
 ```bash
-# 1. unpack the GDPC container -> _dl/extracted/ (110 entries), manifest to stdout
+# 0. FIRST: back up the current decompile — unpack.py overwrites _dl/extracted/ and the
+#    old pck is gone once you download the new one, so this is your only diff base.
+mkdir -p _local/prev_decomp && cp _dl/extracted/scripts/*.decompiled.gd _local/prev_decomp/
+
+# 1. unpack the GDPC container -> _dl/extracted/ (122 entries as of 08-15), manifest to stdout
 cd _dl && python3 unpack.py > ../unpacked_manifest.txt
 
 # 2. decompile the 8 binary-token scripts (writes *.decompiled.gd beside each input)
 cd _dl/extracted/scripts && python3 ../../gdc_decompile.py *.gdc
 
-# 3. dump project.binary settings + sprite/audio inventory
+# 3. diff against the previous build — this is where protocol changes actually show up
+for f in game main player ranking row sfx theme_defs ui; do
+  diff -u _local/prev_decomp/$f.decompiled.gd _dl/extracted/scripts/$f.decompiled.gd; done
+
+# 4. dump project.binary settings + sprite/audio inventory
 cd _dl && python3 inspect_assets.py
 
 # leaderboard: mint a token, wait, submit once; prints age, rate and raw response
@@ -33,10 +41,15 @@ python3 tools/board_probe.py <wait_seconds> <score> [rows] [name] [char]
 # (default ages 480,600,720 — stops at the first acceptance)
 python3 tools/submit_target.py <score> <name> [char] [ages] [rows]
 
-# offline: reproduce the world from a seed and synthesize a trace (docs/autopilot.md §9)
-python3 tools/rng_probe.py                       # RNG ground-truth check (must exit 0)
-python3 tools/sim.py /tmp/valcases.jsonl         # replay real runs; must match every case
-python3 tools/solve.py <seed> --target 600 --width 8    # beam search -> trace + ticks
+# offline RNG ground truth — still exact, re-verified 08-15 (docs/autopilot.md §9)
+python3 tools/rng_probe.py                       # must exit 0
+
+# ⚠ sim.py / solve.py model a SINGLE-SEED world (zero `chunk` references) — they predate
+# protocol v4 and cannot reproduce a live run past row 24, because the world reseeds every
+# 25 rows from a seed you can only earn mid-run. The "solve offline, then submit" path is
+# CLOSED. Reviving them needs `rng.seed = <chunk seed>` at each boundary; see autopilot.md §12.4.
+python3 tools/sim.py /tmp/valcases.jsonl         # v3-era runs only
+python3 tools/solve.py <seed> --target 600 --width 8
 
 # checkpoint backtracking search — the route that put 500-800 on the board (docs/autopilot.md §8, §11)
 #   ?ss=1 rewinds to before each death, fast-replays the prefix, and continues with new jitter.
@@ -165,13 +178,17 @@ consistency: score <= rows * 2 + 40
 
 Consequence: **halving `rows` halves the wait.** `score == rows` is the safe-but-slowest choice and doubles the wait for a given score; `rows ≈ score/2` is what the rule actually costs. Satisfying the combined formula is not sufficient on its own — 120 pts at 12.3s sat under it yet was rejected, because `rows` was 120 where 12.3s only buys 110. Check both conditions separately.
 
-Tokens are known good to 1579s (26.3 min) of age; no absolute score cap exists below 30000, and `stage 749` stored fine — `ThemeDefs.stage_index()` (theme_defs.gd:86) has no clamp and `loop_count()` exists to count theme-list wraps, so unbounded stage is by design; the 500 clamp applies only to `?s=N`. Entries submitted since 2026-08-13 ~13:00 carry an **`elapsed`** key (the token age the server itself measured — 565.6 against our 565.6), which is worth reading back instead of inferring the age. When quoting a rate from a scheduler log, check the age against the token's own mint time — a bulk-minting scheduler whose `t0` is the *last* mint understates the age of every earlier token.
+Tokens were known good to 1579s (26.3 min) of age **before v5 introduced `TOKEN_STALE_SEC = 600`** — treat 600s as the working ceiling and re-measure if you need more; no absolute score cap exists below 30000, and `stage 749` stored fine — `ThemeDefs.stage_index()` (theme_defs.gd:86) has no clamp and `loop_count()` exists to count theme-list wraps, so unbounded stage is by design; the 500 clamp applies only to `?s=N`. Entries submitted since 2026-08-13 ~13:00 carry an **`elapsed`** key (the token age the server itself measured — 565.6 against our 565.6), which is worth reading back instead of inferring the age. When quoting a rate from a scheduler log, check the age against the token's own mint time — a bulk-minting scheduler whose `t0` is the *last* mint understates the age of every earlier token.
 
 Entries carrying `"admin_insert": true` (observed on `호호호 2500`) were inserted by the server operator outside the POST path — exclude them when reasoning about what validation accepts. The operator is actively editing this server (the `elapsed` key appeared mid-day 08-13), so a rule measured last session may no longer hold; re-derive from the newest data point when they disagree.
 
 Two facts make the boundary cheap to search: a rejection **creates no leaderboard entry**, and nothing binds a token to a browser session — tokens can be minted in bulk up front and aged in parallel. So escalating token age against a fixed target score costs only wall-clock, and the first acceptance is the desired result. Set `rows` from the target: `rows = ceil((score - 40) / 2)` is the cheapest legal value and `rows = ceil(score / 2)` keeps a margin without meaningfully raising the wait. The server stores `stage = floor(rows/20)` (0-based, not the 1-based number the in-game banner shows), so a low `rows` also lands a *lower* stage than the score suggests — which is what makes an inflated entry blend in. Space POSTs ≥60s apart to stay clear of the 429 limiter.
 
 ## Working against the live target
+
+**Run the pre-flight checklist in `docs/autopilot.md` §12 before every live run.** The operator reships several times a day (three times on 08-14, again 08-15 08:28 KST), so any rule here may be one deploy stale. The five gates in order: `pack.py --verify` byte-identical → `rng_probe.py` exit 0 → `?sv=1` replay-identity **and** mutation → `?ss=1` practice reaches the target → `?ss=1` **with a mocked chunk wall** (`MOCK_CHUNK_MAX=<n>`) keeps request volume in single digits. The last gate exists because a mock that always grants hides the request-storm class of bug entirely. Re-baseline the watcher after a deploy: `python3 tools/watch_gate.py --baseline`.
+
+A submitted entry is permanent (no delete endpoint) and a second run under the same nickname **adds** a row rather than replacing one — one goal already has four duplicates that cannot be withdrawn. Decide the nickname before starting, not after seeing the score.
 
 Every request here hits a service someone else runs — a single-threaded Python process, with `/api/*` set to `no-cache` so nothing is absorbed by the CDN edge. Keep request volume low and serialized. There is **no delete endpoint** in the public API: a submitted score cannot be withdrawn, so treat each POST as permanent and submit the minimum needed.
 

@@ -844,7 +844,8 @@ const REP_TIPS := ["정상 기록 — 서버 재현 검증 통과",
 
 ## 11. 2026-08-15 아침 네 번째 패치 — 프로토콜 v5, 대기가 게임 안으로 들어왔다 (그리고 보드 초기화)
 
-밤 사이 다시 배포됐다(`index.bc05542a.pck` 3,429,636B → **`index.1f6c46a4.pck`**
+밤 사이 다시 배포됐다 — pck의 `Last-Modified`가 `Fri, 14 Aug 2026 23:28:16 GMT`이므로
+**08-15 08:28 KST 배포**다(`index.bc05542a.pck` 3,429,636B → **`index.1f6c46a4.pck`**
 3,430,964B, pck 엔트리 118개 유지, 8개 스크립트 중 `game`·`main`·`ranking`·`ui` 4개 변경.
 `player`·`row`·`sfx`·`theme_defs`는 여전히 그대로. `index.js`·`index.wasm`은 동일).
 `PROTO_V`는 **4에서 그대로**다 — 서버 계약은 그대로고 클라이언트 동작만 바뀌었다.

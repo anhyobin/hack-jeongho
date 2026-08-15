@@ -549,3 +549,74 @@ MOCK_START=1 MOCK_CHUNK_WINDOW=1 MOCK_CHUNK_MAX=8 BLOCK_POST=1 PORT=8814 python3
 ALLOW_POST_NAME=<닉> ALLOW_POST_MIN_SCORE=<하한> PORT=8816 python3 tools/local_proxy.py
 #   본 주행: /?bot=1&ss=1&bt=500&sfloor=400&sspd=60&sttl=300&bn=<닉>&bsub=1&bchar=peccy
 ```
+
+---
+
+## 12. 실전 체크리스트 — 다음 주행 전에 이것부터 (v5 기준, 08-15)
+
+운영자가 하루에 여러 번 재배포한다. **아래 순서를 건너뛰면 낡은 전제로 남의 서버에
+요청을 낸다.** 08-15 주행이 실제로 밟은 순서다.
+
+### 12.1 배포가 바뀌었는지 확인하고, 바뀌었으면 파이프라인을 다시 돈다
+
+```bash
+pgrep -fl local_proxy.py          # ★ 다른 세션이 도는지 먼저 본다 (08-14 충돌 사고)
+python3 tools/watch_gate.py       # exit 1 = 무언가 바뀌었다
+curl -s "https://d15csla760jzen.cloudfront.net/?cb=$RANDOM" | grep -o 'index\.[0-9a-f]*\.pck' | sort -u
+```
+
+pck 이름이 바뀌었으면 — **디컴파일 사본을 먼저 백업한 뒤에** 새로 내려받는다.
+`unpack.py`가 `extracted/`를 갈아엎으므로 백업하지 않으면 **직전 빌드와 diff 할 기준을
+잃는다.** 변경분을 못 보면 v5의 `stall_since` 삭제 같은 것을 놓치고 런타임 오류를 만난다.
+
+```bash
+mkdir -p _local/prev_decomp && cp _dl/extracted/scripts/*.decompiled.gd _local/prev_decomp/
+cd _dl && curl -s ".../index.<새이름>.pck?cb=$RANDOM" -o index.pck && curl -s ".../index.js" -o index.js
+curl -s ".../?cb=$RANDOM" -o index.html
+rm -rf extracted && python3 unpack.py > ../unpacked_manifest.txt
+cd extracted/scripts && python3 ../../gdc_decompile.py *.gdc     # leftover=0 이 8개여야 한다
+cd ../../.. && for f in game main player ranking row sfx theme_defs ui; do
+  diff -u _local/prev_decomp/$f.decompiled.gd _dl/extracted/scripts/$f.decompiled.gd; done
+python3 tools/pack.py --verify                                    # 바이트 동일해야 한다
+```
+
+`_local/prev_decomp/`는 gitignore 대상이다(파생물이지만 pck를 덮은 뒤에는 재생성할 수 없다 —
+그래서 로컬에만 남긴다).
+
+### 12.2 관문 두 개를 통과하고 나서 실서버로 간다
+
+| 순서 | 명령 | 통과 기준 |
+|---|---|---|
+| 1 | `pack.py --verify` | 원본 재패킹이 **바이트 동일** |
+| 2 | `rng_probe.py` | `exit 0` (6건 정답지 전부 일치) |
+| 3 | `?sv=1` (모의) | 재생 동일성 `rows/score/ticks` 3개 일치 **+** 변이 재생이 줄어든다 |
+| 4 | `?ss=1` (모의, 상한 없음) | 목표 점수에 닿는다 |
+| 5 | `?ss=1` (모의, `MOCK_CHUNK_MAX=<n>`) | **벽 상황에서 요청 총량이 한 자리 수** |
+
+**5번을 건너뛰지 마라.** 항상 200을 주는 모의 서버에서는 요청이 청크당 1건이라 간격
+버그가 보이지 않는다 — 그것이 275건 사고의 원인이었다(§11.2).
+
+### 12.3 주행 중에 지켜야 하는 예산
+
+| 항목 | 값 | 왜 |
+|---|---|---|
+| 토큰 나이 | **600초 안에 제출까지 끝낸다** | `TOKEN_STALE_SEC` (실측 218.6초) |
+| 청크 요청 간격 | **6초 이상** | 원본 타임아웃 5초 + 429 스로틀 |
+| 한 청크 연속 거부 | **3회차면 토큰을 버린다** | 275건 태운 토큰이 못 넘은 벽을 새 토큰이 18건에 넘었다 |
+| 주행 총 요청 | **25건 내외** | 남의 단일 스레드 서버다 |
+| `sfloor` | **반드시 준다** | 목표 미달이 정상 경로다(§10) |
+| 제출 가드 | `ALLOW_POST_NAME` + `ALLOW_POST_MIN_SCORE` | 게임 안의 어떤 실수도 통과 못 한다 |
+
+### 12.4 ★ 오프라인 시뮬레이터(§9)는 v4 이후 실주행에 쓸 수 없다
+
+`tools/sim.py`·`tools/solve.py`는 **단일 시드 월드**를 모델한다(`chunk` 참조 0건). 프로토콜
+v4부터 월드는 25행마다 다시 뿌려지고 그 시드는 **앞 청크를 실제로 통과해야** 받을 수 있으므로,
+"오프라인에서 경로를 찾아 제출한다"는 §9의 경로는 **닫혀 있다.** 24행까지만 맞는다.
+
+그래도 버리지 않는다 — `rng_probe.py`가 증명하는 Godot RNG 이식은 여전히 정확하고
+(`exit 0`, 08-15 재확인), 되살리려면 필요한 것은 하나다: **행 경계에서 `rng.seed`를 청크
+시드로 갈아 끼우는 것**(`_ensure_chunk`와 같은 동작), 그리고 청크 시드를 인자로 받는 것.
+그때도 시드를 실주행으로 벌어야 하므로 "완전 오프라인"은 되지 않고, **이미 받은 청크
+범위 안에서 더 좋은 경로를 찾는 용도**가 된다.
+
+지금 실주행의 유일한 경로는 §8+§11의 엔진 내 체크포인트 탐색이다.
