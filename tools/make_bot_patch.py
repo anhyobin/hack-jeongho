@@ -33,6 +33,13 @@ INSERTS = {
     ],
     "main": [
         ("after_first", "\tranking.start_run()\n", "\t_bot_autostart()\n"),
+        # v5가 `_process`에 토큰 자동 재발급을 넣었다(나이 > TOKEN_STALE_SEC). 탐색은
+        # 토큰 하나와 그 청크 시드 위에서 수십 회차를 돌므로 그것이 돌면 통째로 날아간다.
+        # `_process`는 `_sim_tick` 밖이라 막아도 서버의 재현과 무관하다.
+        ("replace",
+         "\tif ranking.token != \"\" and ranking.token_age() > ranking.TOKEN_STALE_SEC:\n",
+         "\tif not _bot_hold_token() and ranking.token != \"\""
+         " and ranking.token_age() > ranking.TOKEN_STALE_SEC:\n"),
         ("after", "\tui.show_game_over(score, rows, int(ranking.data[\"best\"]), is_new_best, cause, stage_idx)\n",
          "\t_bot_after_over(cause)\n"),
     ],

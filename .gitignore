@@ -19,3 +19,6 @@ _local/trace.json
 # 병렬 세션용 워크트리
 .worktrees/
 
+
+# 직전 배포의 디컴파일 사본 (다음 배포와 diff 하기 위한 로컬 기준점)
+_local/prev_decomp/

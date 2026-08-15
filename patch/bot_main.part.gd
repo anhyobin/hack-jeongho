@@ -30,6 +30,15 @@ var bot_seed := -1
 var bot_did_submit := false      # 제출이 성공하면 자동 재시도를 멈춘다
 var bot_pending_submit := false  # 제출 대기 중(사람의 입력 시간을 흉내내는 지연)
 
+# 프로토콜 v5가 `Main._process`에 토큰 자동 재발급을 넣었다 — 대기 화면에서 토큰 나이가
+# `Ranking.TOKEN_STALE_SEC`(600초)를 넘으면 `start_run()`을 부른다. 체크포인트 탐색은
+# **하나의 토큰과 그 토큰이 발급한 청크 시드** 위에서 수십 회차를 도는데, 회차 사이에는
+# `app_state`가 "play"가 아닌 프레임이 반드시 있으므로 그 경로에 걸린다. 한 번 걸리면
+# 토큰·시드·수확한 청크가 통째로 날아가고 `api/start`도 한 건 새어 나간다.
+# `_process`는 시뮬레이션(`_sim_tick`) 밖이므로 막아도 서버의 재현과 무관하다.
+func _bot_hold_token() -> bool:
+	return search_mode != "" or bot_pending_submit
+
 func _bot_autostart() -> void:
 	if not _bot_flag("bot"):
 		return

@@ -54,6 +54,9 @@ MIME = {".html": "text/html", ".js": "text/javascript", ".wasm": "application/wa
 
 _mock_n = 0
 MOCK_CHUNK_DELAY = float(os.environ.get("MOCK_CHUNK_DELAY", "0.15"))
+# 모의 토큰의 나이(초). `Ranking.TOKEN_STALE_SEC`(600) 미만이어야 한다 — 넘으면
+# 클라이언트가 스스로 재발급한다.
+MOCK_TOKEN_AGE = float(os.environ.get("MOCK_TOKEN_AGE", "0"))
 
 
 def godot_json(payload):
@@ -120,10 +123,14 @@ class H(BaseHTTPRequestHandler):
             _mock_n += 1
             seed = mock_world_seed(_mock_n)
             # 토큰의 첫 필드는 발급 epoch이고 클라이언트·하네스가 나이를 그것으로
-            # 계산한다. 연습에서 나이 대기와 페이싱에 걸리지 않도록 1시간 전으로
-            # 발급한다 — 그 밖의 경로는 실서버와 완전히 같게 돈다.
-            token = "%d.mock%04d.0000000000000000" % (int(time.time()) - 3600,
-                                                      _mock_n)
+            # 계산한다. **v5부터 1시간 전으로 발급하면 안 된다** —
+            # `Ranking.token_stale()`이 600초를 넘은 토큰을 낡았다고 보고
+            # `Main._process`/`begin_game`이 그 자리에서 재발급해 버린다.
+            # 기본은 갓 발급(0초)이라 실서버와 같은 페이싱을 연습에서 그대로 겪는다.
+            # 빨리 돌려 보고 싶으면 URL에 `space=0`을 주거나 MOCK_TOKEN_AGE를 올린다
+            # (600 미만으로).
+            token = "%d.mock%04d.0000000000000000" % (
+                int(time.time()) - int(MOCK_TOKEN_AGE), _mock_n)
             # 실서버는 청크 0·1만 미리 준다(실측). 그 뒤는 `api/chunk`로 받아온다.
             chunks = {str(i): str(mock_chunk_seed(_mock_n, i)) for i in (0, 1)}
             log(f"  GET  /api/start -> 모의 seed={seed} chunks=0,1")

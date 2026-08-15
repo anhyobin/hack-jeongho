@@ -38,26 +38,27 @@ python3 tools/rng_probe.py                       # RNG ground-truth check (must 
 python3 tools/sim.py /tmp/valcases.jsonl         # replay real runs; must match every case
 python3 tools/solve.py <seed> --target 600 --width 8    # beam search -> trace + ticks
 
-# checkpoint backtracking search — the route that reached 600+ in the engine (docs/autopilot.md §8)
+# checkpoint backtracking search — the route that put 500-800 on the board (docs/autopilot.md §8, §11)
 #   ?ss=1 rewinds to before each death, fast-replays the prefix, and continues with new jitter.
 #   ?sv=1 must pass first: replay a run's own trace and confirm rows/score/death tick match.
-#   602 points took 12 rounds and 2 live requests (api/start + POST).
+#   08-15 v5: 500 points took 3 rounds, 158s and 25 live requests total.
 
 # repack the pck with an autopilot spliced into game.gd/main.gd (docs/autopilot.md)
 # NOTE the pck filename tracks the live deploy — read it out of _dl/index.html, don't hardcode.
 python3 tools/pack.py --verify          # sanity: rebuilding the original must be byte-identical
 python3 tools/make_bot_patch.py         # decompiled source + patch/bot_*.part.gd -> patch/*.gd
-python3 tools/pack.py -o _local/index.bc05542a.pck \
+python3 tools/pack.py -o _local/index.1f6c46a4.pck \
         --text scripts/game.gd=patch/game.gd --text scripts/main.gd=patch/main.gd
 # then update that filename's entry in _local/index.html's fileSizes to the new byte size
 
-# probe how POST api/chunk validates a trace (protocol v4). Uses a throwaway token, no nickname.
-python3 tools/chunk_probe.py
+# tools/chunk_probe.py is kept as a record of what NOT to do — it posted a synthetic trace.
+# Read its header before touching it; only its empty-trace ask() is still safe.
 
 # serve the patched client locally; only /api/* is relayed to the live server
-MOCK_START=1 MOCK_CHUNK_WINDOW=1 BLOCK_POST=1 PORT=8788 python3 tools/local_proxy.py  # practice
-ALLOW_POST_NAME=<nick> ALLOW_POST_MIN_SCORE=<n> PORT=8790 python3 tools/local_proxy.py  # live run
-# http://127.0.0.1:8788/?bot=1&ss=1&bt=777&sfloor=610&sspd=60&sttl=700   (see docs/autopilot.md)
+MOCK_START=1 MOCK_CHUNK_WINDOW=1 BLOCK_POST=1 PORT=8810 python3 tools/local_proxy.py  # practice
+MOCK_START=1 MOCK_CHUNK_WINDOW=1 MOCK_CHUNK_MAX=8 BLOCK_POST=1 PORT=8814 python3 tools/local_proxy.py  # emulate a chunk wall
+ALLOW_POST_NAME=<nick> ALLOW_POST_MIN_SCORE=<n> PORT=8816 python3 tools/local_proxy.py  # live run
+# http://127.0.0.1:8810/?bot=1&ss=1&bt=500&sfloor=400&sspd=60&sttl=300   (see docs/autopilot.md)
 
 # gate watcher — read-only, never POSTs. Exit 1 means something changed:
 # a new index.pck (re-run the pipeline), seed gone from api/start (rollback),
@@ -75,7 +76,7 @@ python3 tools/watch_gate.py [--baseline]
 
 ## recovered/ is the 2026-08-12 snapshot — the live game is `_dl/extracted/`
 
-**`recovered/*.gd` is no longer byte-identical to `_dl/extracted/scripts/*.decompiled.gd`.** The operator reships several times a day — most recently 08-14 22:04 (`index.bc05542a.pck`, protocol v4: `game` +chunk seeding, `ranking` +`api/chunk`, `main` +`last_unranked`, `ui` +rep badges). Before that, 08-14 02:16 changed 6 of the 8 files (`game` 112 lines, `ranking` 54, `main` 16, `ui` 15, `player` 9, `row` 7; `theme_defs` and `sfx` are unchanged). `tools/make_bot_patch.py` already reads `_dl/extracted/`, so builds are unaffected — but **reasoning from `recovered/` produces wrong conclusions.** Re-run the pipeline and read the fresh decompile before making any claim about current behaviour.
+**`recovered/*.gd` is no longer byte-identical to `_dl/extracted/scripts/*.decompiled.gd`.** The operator reships several times a day — most recently 08-15 morning (`index.1f6c46a4.pck`, protocol v5: `game` `_needs_chunk_wait` replaces the 420-tick stall, `ranking` `token_age`/`token_stale`, `main` `begin_game`/`_process` token remint, `ui` `set_start_busy`; `player`/`row`/`sfx`/`theme_defs` unchanged again). Before that, 08-14 22:04 (`index.bc05542a.pck`, protocol v4: `game` +chunk seeding, `ranking` +`api/chunk`, `main` +`last_unranked`, `ui` +rep badges). Before that, 08-14 02:16 changed 6 of the 8 files (`game` 112 lines, `ranking` 54, `main` 16, `ui` 15, `player` 9, `row` 7; `theme_defs` and `sfx` are unchanged). `tools/make_bot_patch.py` already reads `_dl/extracted/`, so builds are unaffected — but **reasoning from `recovered/` produces wrong conclusions.** Re-run the pipeline and read the fresh decompile before making any claim about current behaviour.
 
 The changes are all in service of one goal — making a run **reproducible from a seed** — which is what the server's replay verification needs:
 
@@ -109,15 +110,21 @@ A one-line elimination table is in `docs/wt-notes/wt-rng.md`: 7 seedings × 3 `r
 
 ## Leaderboard API and its server-side validation
 
-> **Protocol v4 (2026-08-14 22:04) split the world seed into 25-row chunks — read `docs/leaderboard-api.md` §10 before anything else.** `api/start` now returns `chunk_rows` (25) and only `chunks` 0-1; every later chunk's seed must be earned mid-run with `POST api/chunk {token, i, ticks, char, trace}`, and the server **replays the trace** to check you reached the previous chunk. Miss a seed and `Game._ensure_chunk` falls back to a local seed after 420 ticks, sets `unranked`, and the client refuses to submit that run.
+> **The world seed is split into 25-row chunks (`chunk_rows` 25); `api/start` gives only `chunks` 0-1 and every later seed is earned mid-run with `POST api/chunk {token, i, ticks, char, trace}`, which the server validates by replaying the trace.** Read `docs/leaderboard-api.md` §10 then **§11** — the 2026-08-15 morning deploy (`index.1f6c46a4.pck`, protocol v5) rewrote how the client waits, and it rewrote it **in our favour**.
 >
-> Three consequences for the autopilot (`docs/autopilot.md` §10): search rounds must carry the **real** token (so the misfire guard moved out of the game into the proxy's `ALLOW_POST_NAME`/`ALLOW_POST_MIN_SCORE`); **row generation must never be delayed by even one tick** (a row created a tick late misses one `step()` and the world diverges — a 438-row prefix replayed to 241 rows), so freeze whole ticks before a chunk boundary instead, which is simulation-invisible; and **a refused chunk almost always means the bot did not actually get there** — the server wants the trace to reach roughly `(i-1)*chunk_rows + 6`, and four of the five stalled runs were 3-4 rows short of that line (one run sat at 652 rows needing 656 and looked for all the world like a hard 674-row cap). Don't theorise about budgets: check the reached row first (`docs/leaderboard-api.md` §10.3.1, which records two wrong theories before that one). The two rules that do hold: **reap harvested seeds on every round-abort path** (one run re-fetched the same chunk 18 times and stalled itself into a diverged world) and **suppress the original client's prefetch**, which is always 14 rows too shallow and therefore always rejected — with both fixed, the winning run spent 29 requests to get 28 seeds.
+> In v5 `Game._ensure_chunk` no longer blocks; a missing seed goes straight to a local fallback + `unranked`. The waiting moved into a new `_needs_chunk_wait()` called at the **top of `_sim_tick`**, which returns before `tick_count += 1` — i.e. it **freezes whole ticks**, which is exactly the "row generation must never be delayed by even one tick" invariant we had to hand-build in v4 (a row created a tick late misses one `step()`; a 438-row prefix once replayed to 241 rows). Its request depth is `need_ci = (cam_row + 14) / chunk_rows`, so the trace has reached `(i-1)*25 + 15` — comfortably past the accepted window's lower bound of about `(i-1)*25 + 6`. So **do not send chunk requests from the harness; let the original send them.** The harness's remaining jobs (`docs/autopilot.md` §11): swallow the original's *prefetch* (`_ensure_chunk`'s `want_chunk(ci+1)`, always ~19 rows too shallow, always rejected) but **release that slot when `need_ci` reaches it**; keep pacing; abort the round before the original's **15-second wall-clock** giveup (`WAIT_GIVEUP_MS`), which latches `wait_gave_up`/`unranked` permanently; reap harvested seeds on every abort path; and block `Main._process`'s new token auto-remint with `_bot_hold_token()`.
+>
+> **Rate-limit chunk requests yourself — 6 s, longer than `want_chunk`'s 5 s timeout.** The original re-requests **every tick** while waiting, and a fast `403`/`429` clears `_chunk_pending` immediately, so a wall produces ~8 requests/second: on 08-15 11:03 one chunk drew **275 requests** to a single-threaded server someone else runs. `api/chunk` now answers `429 {"error": "too fast"}`, so the storm also hides the real response. A mock that always grants will never show this — emulate the wall (`MOCK_CHUNK_MAX=8`) before trusting any change here. With the limiter, the same wall cost 3 requests.
+>
+> **A chunk refused three rounds in a row means: throw the token away and start over.** On 08-15 one token got chunks 2-8 on first ask, then `403` on chunk 9 for three different traces (depth, `ticks`, token age and grant-count caps are all ruled out — §11.3); a fresh token minted 8 minutes later took chunk 9 on the first ask and ran to 19. The old rule still holds first though: **a refused chunk usually means the bot did not actually get there**, so check the reached row before theorising (`docs/leaderboard-api.md` §10.3.1 records two wrong theories).
+>
+> **Token freshness is now capped: `Ranking.TOKEN_STALE_SEC = 600`.** `Main.begin_game()` re-mints before starting and `Main._process()` re-mints on any idle screen past 600 s. Keep a whole run — search plus the submit-age wait — inside 600 s of token age (the 500-point run took 218.6 s). The §3 observation that tokens were good to 1579 s predates this and must be re-measured.
 >
 > **Always give the search an exit for "target not reached": `sfloor=<score>`.** On 08-15 00:04 a run reached a registerable 630 rows / 681 points and the harness discarded it because it was configured to submit only at 777. That trace lived only in browser memory (`docs/submissions-log.md` session H).
 
 > **As of 2026-08-14 the only way to put a score on the board is to actually cross the rows.** The server reseeds the world from `api/start`'s `seed`, replays the submitted `trace`, and computes **both `rows` and `score`** itself. Inflating `score` within the old `score <= rows*2+40` slack is dead: `503 / rows 240` and `200 / rows 85` were both `403 rejected`, while honest `200 / rows 188` from the same client passed. Everything below about buying score with token age is **history** — read `docs/leaderboard-api.md` §8 first, then `docs/autopilot.md` for the only live path.
 >
-> **`rep` is a second judgement on top of `verified`, and what feeds it is still unknown — do not assert a cause.** `굿밤정호 800` came back `verified: true` (server-replayed, 736 rows genuinely crossed) yet `rep 2` ("위조 시도 이력이 있는 곳에서") on a nickname that had **never been used**, so nickname history is ruled out — but that does not prove IP, because our two `rep 2` entries also share a proxy, a patched pck, a chunk-request pattern and a time window. The one suggestive split: our only `rep 0` entry (`야호정호 602`) was **protocol v3 with zero `api/chunk` calls**, while both `rep 2` entries made 29 each. Discriminating test, 2 requests and no forged body: submit a **sub-50-row** run (needs no chunk seeds) under a throwaway name — `rep 0` implicates the chunk-request pattern, `rep 2` implicates source/client. I asserted a cause twice and was wrong twice (`docs/leaderboard-api.md` §9.5). Separately: **never post a synthetic trace** — `tools/chunk_probe.py` did, on the theory that "no nickname means no rep risk", and that premise was never checked.
+> **`rep` is a second judgement on top of `verified`, it is server-side state, and the 2026-08-15 board reset cleared it.** On 08-15 night every submission from this source came back `rep 2` ("위조 시도 이력이 있는 곳에서 올린 기록이에요") even at `verified: true` — including a 30-row honest run under a brand-new nickname (`테스트고라니 30`, `docs/leaderboard-api.md` §11.5). After the operator reset the board, the same machine, proxy, patched pck and **18 `api/chunk` calls** produced `rep 0` "정상". So: nickname history is ruled out, and **"calling `api/chunk` earns rep 2" is ruled out**. What actually sets the mark is still unknown — **do not assert a cause**; I asserted one twice and was wrong twice (§9.5). Separately: **never post a synthetic trace** — `tools/chunk_probe.py` did, on the theory that "no nickname means no rep risk", and that premise was never checked.
 >
 > Two further rules from that session: **judge a submission only by the POST response's `ok`** — 4 of 6 accepted entries were missing from `GET api/scores` for hours and then reappeared, and mistrusting `ok: true` is why one goal now has four duplicate entries that cannot be withdrawn (§8.2) — and **the response's `rank` is unreliable** (a stored #1 came back as `rank 4`).
 

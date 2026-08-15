@@ -27,32 +27,47 @@
 #   sfloor=<점수> 마감 시점에 이 점수 이상이면 최선을 제출한다. 토큰의 행수 상한 때문에
 #                목표에 못 닿을 때 쓰는 출구다(기본값은 bt와 같아 기존 동작 유지)
 #
-# --- 프로토콜 v4(08-14 22:04 배포) 대응 -------------------------------------
+# --- 프로토콜 v5(08-15 아침 배포, `index.1f6c46a4.pck`) 대응 -----------------
 #
-# 월드 시드가 25행 단위 청크로 쪼개졌다. `api/start`는 청크 0·1만 주고, 그 뒤 시드는
-# 주행 중에 `POST api/chunk {token, i, ticks, char, trace}`로 받아온다. 서버는 그 trace
-# 를 **재현해서** 그 행에 실제로 닿았는지 보고 시드를 준다(합성 trace는 거부 — 실측).
-# 시드를 못 받으면 `Game._ensure_chunk`가 420틱 뒤 로컬 시드로 넘어가며 `unranked`를
-# 켜고, 그 주행은 서버가 재현할 수 없으므로 제출 자격을 잃는다.
+# 월드 시드는 여전히 25행 단위 청크로 쪼개져 있고, 청크 0·1만 `api/start`가 주고 그
+# 뒤는 주행 중에 `POST api/chunk {token, i, ticks, char, trace}`로 받아온다. 서버는 그
+# trace를 **재현해서** 그 행에 실제로 닿았는지 보고 시드를 준다(합성 trace는 거부).
 #
-# 그래서 탐색이 세 가지를 더 지켜야 한다.
+# 달라진 것은 **클라이언트가 기다리는 방식**이고, 그 방향이 우리에게 유리하다.
+#
+#   `_ensure_chunk`는 더 이상 생성을 막지 않는다 — 시드가 없으면 즉시 로컬 시드 +
+#   `unranked`. 대신 `_sim_tick` **맨 위**의 `_needs_chunk_wait()`가
+#   `need_ci = (cam_row + 14) / chunk_rows`의 시드가 없으면 `tick_count`를 올리기
+#   **전에** return 한다. 즉 **틱을 통째로 얼린다** — 어젯밤 하네스가 손으로 만들어야
+#   했던 "행 생성 지연 0틱" 불변조건 그 자체다. 요청 깊이도 창 안쪽
+#   (`(i-1)*25 + 11`)으로 고쳐졌다.
+#
+# 그래서 탐색이 지킬 것이 네 가지로 줄어든다.
 #
 # 1. **탐색 주행도 실토큰으로 돈다.** `want_chunk`가 `active_token == "TEST"`를 걸러내
-#    므로 TEST 주행은 프런티어에서 새 청크를 수확할 수 없다. 대신 옛 "TEST라서 제출이
-#    구조적으로 불가능" 가드가 사라지므로, 그 자리는 프록시의 `ALLOW_POST_NAME` /
+#    므로 TEST 주행은 프런티어에서 새 청크를 수확할 수 없다. 옛 "TEST라서 제출이
+#    구조적으로 불가능" 가드가 없으므로, 그 자리는 프록시의 `ALLOW_POST_NAME` /
 #    `ALLOW_POST_MIN_SCORE`가 게임 밖에서 메운다(`tools/local_proxy.py`).
 # 2. **수확한 청크 시드를 회차 간 누적한다.** `claim_run`이 매 주행 `active_chunks`를
 #    `chunks`에서 새로 복사하므로, 그 자리에 누적분을 되돌려 놓아야 한다. 되돌리지
 #    않으면 매 회차가 청크 2에서 다시 막힌다.
-# 3. **경계에 닿기 전에 틱을 멈춘다.** 시드가 없어 `_gen_row`가 실패하면 그 행은 다음
-#    틱에 만들어져 `step()`을 한 번 덜 받는다 — 서버의 재현과 갈라진다. 틱 전체를
-#    멈추는 것은 배속과 같아 시뮬레이션에 보이지 않으므로, 경계 앞에서 멈춘 뒤 시드를
-#    받아 이어 간다. 이미 stall이 일어난 회차는 갈라진 월드이므로 버린다(§_search_chunk_ok).
+# 3. **원본의 선행 요청만 막는다.** `_ensure_chunk`는 생성이 청크 ci에 들어설 때
+#    `want_chunk(ci + 1)`을 부르는데, 그 시점의 도달 행은 창 아래끝보다 19행 얕아
+#    **반드시 거부된다.** `need_ci`보다 앞선 자리를 `_chunk_pending`에 미리 걸어 막고,
+#    `need_ci`가 그 자리에 오면 풀어 준다 — 그 자리는 원본이 제 깊이에서 부른다.
+# 4. **15초 포기 전에 회차를 접는다.** `WAIT_GIVEUP_MS = 15000`을 넘기면
+#    `wait_gave_up`이 고정되고 `unranked`가 켜져 그 주행은 영구히 제출 자격이 없다.
+#    그 전에 수확분을 거두고 되감는다.
 #
-# 그리고 **페이싱**: 서버는 청크 요청마다 `ticks`를 함께 받는다. 60배속 탐색은 벽시계
+# 그리고 **페이싱**: 서버는 청크 요청마다 `ticks`를 함께 받는다. 25배속 탐색은 벽시계
 # 보다 시뮬레이션이 앞서므로 `ticks/60 > 토큰 나이`인 요청을 보내게 되는데, 그것은
 # 사람이 만들 수 없는 조합이다. 미지 청크에 진입하기 전에 나이가 따라잡을 때까지
-# 기다린다. 비용은 사실상 0이다 — 제출 전에 어차피 `ticks/60 + 45`초를 기다려야 한다.
+# 얼린다. 얼리는 동안 `_sim_tick`이 아예 돌지 않으므로 **15초 시계도 시작되지 않는다.**
+# 비용은 사실상 0이다 — 제출 전에 어차피 `ticks/60 + 45`초를 기다려야 한다.
+#
+# ★ 토큰 신선도 600초(`Ranking.TOKEN_STALE_SEC`)가 새로 생겼고, `Main._process`가
+#   대기 화면에서 그 나이를 넘은 토큰을 **자동 재발급**한다. 탐색 중에 그것이 돌면
+#   토큰·시드·청크가 통째로 날아간다 — `_bot_hold_token()`이 그 경로를 막는다.
 # ---------------------------------------------------------------------------
 
 # --- 계약 -------------------------------------------------------------------
@@ -89,7 +104,7 @@ var search_rows_log: Array = []    # 회차별 도달 행
 var search_v1: Dictionary = {}     # 첫 관문 1차 주행 결과
 var srng: RandomNumberGenerator = null   # 탐색용 난수 — 월드 rng와 무관하다
 
-# --- 프로토콜 v4: 청크 시드 -------------------------------------------------
+# --- 프로토콜 v5: 청크 시드 -------------------------------------------------
 var search_chunks: Dictionary = {}   # 수확한 청크 시드. **회차 간 누적된다**
 var search_chunk_rows := 25
 var search_live := false             # 실토큰 주행인가(청크 수확이 가능한가)
@@ -98,14 +113,18 @@ var search_stall_t0 := 0.0           # 청크 대기 시작 벽시계. 0이면 �
 var search_stall_ci := -1            # 기다리는 청크
 var search_chunk_fail := 0           # 같은 청크에서 연속으로 실패한 회차 수
 var search_pace_note := 0.0          # 페이싱 로그를 10초당 1회로 줄이기 위한 시각
-var search_req_t := 0.0              # 마지막 청크 요청 시각(재요청 간격 제한)
-var search_chunk_off := 2            # 요청 깊이(창 아래끝 + 이 값). 거부되면 자동으로 깊어진다
-var search_next_ci := 1              # 프런티어 청크 캐시 (단조 증가)
+var search_blocked: Dictionary = {}  # 내가 `_chunk_pending`에 걸어 막아 둔 청크
+var search_req_t := 0.0              # 마지막으로 요청을 흘려보낸 벽시계 (간격 제한)
 var search_best_score := 0           # 최선 trace의 점수 (상한에 닿으면 이것이 목표가 된다)
 var search_floor := 0                # 이 점수 이상이면 마감 시점에 제출한다 (`sfloor`)
 var search_capped := false           # 토큰의 행수 상한에 닿았는가
 var search_row_cap := 0              # 그 상한 안에서 봇이 멈출 행
-const SEARCH_STALL_GIVEUP := 10.0    # 청크 응답을 이만큼 못 받으면 회차를 접는다
+# 원본의 포기 한계는 `WAIT_GIVEUP_MS = 15000`(벽시계)이다. 그것을 넘기면 `wait_gave_up`
+# 이 고정되고 `unranked`가 켜져 회차를 살릴 수 없으므로, 반드시 그보다 먼저 접는다.
+const SEARCH_WAIT_ABORT := 13.0      # 청크 응답을 이만큼 못 받으면 회차를 접는다
+# 요청 간격. 원본의 HTTP 타임아웃(5초)보다 길어야 중복이 나가지 않는다. 회차당 시도는
+# `SEARCH_WAIT_ABORT / 이 값` = 2회다.
+const SEARCH_REQ_INTERVAL := 6.0
 const SEARCH_CHUNK_FAIL_MAX := 3     # 같은 청크에서 이만큼 실패하면 상한으로 판정한다
 const SEARCH_PACE_MARGIN := 5.0      # ticks/60 대비 토큰 나이에 두는 여유(초)
 
@@ -132,7 +151,7 @@ func bot_tick_ok(g, guard: int) -> bool:
 			_search_on_over(last_trace, last_ticks, g.rows_crossed(), g.score(),
 					g.unranked)
 		return false
-	if not _search_chunk_ok(g):
+	if not _search_chunk_ok(g, guard):
 		return false
 	if g.replay_mode:
 		if search_hand_tick >= 0 and g.tick_count >= search_hand_tick:
@@ -149,205 +168,133 @@ func bot_tick_ok(g, guard: int) -> bool:
 			print("[search] 재생 완료(%d건 소비) — 실시간으로 전환한다" % g.replay_idx)
 	return guard < search_cap
 
-# --- 청크 게이트 (프로토콜 v4) ----------------------------------------------
+# --- 청크 게이트 (프로토콜 v5) ----------------------------------------------
 #
-# ★ 배포된 클라이언트의 요청 시점을 **그대로 쓴다.** 서버가 받아들이는 지점이 그것이기
-#   때문이다. `_ensure_chunk`는 두 자리에서 시드를 요구한다.
+# ★ **원본이 기다린다.** `_sim_tick` 맨 위의 `_needs_chunk_wait()`가
+#   `need_ci = (cam_row + 14) / chunk_rows`의 시드가 없으면 `tick_count`를 올리기 전에
+#   return 하므로 틱이 통째로 얼고, 행 생성 지연이 **0틱**이다. 요청 깊이도 창 안쪽
+#   (`(i-1)*chunk_rows + 11`)이라 서버가 받아들인다. 그래서 하네스는 요청을 직접 보내지
+#   않고 세 가지만 한다.
 #
-#     선행: 청크 ci에 들어설 때 `want_chunk(ci + 1)` — 창보다 얕아 거부된다(무해)
-#     직접: 생성이 그 청크를 필요로 해 막힐 때 — **이쪽이 받아들여지는 자리다**
+#   1. 원본의 **선행 요청**(`_ensure_chunk`의 `want_chunk(ci+1)`)을 막는다. 그것은 창
+#      아래끝보다 19행 얕아 반드시 거부되는 헛요청이다 — 남의 단일 스레드 서버에
+#      청크마다 한 건씩 쌓인다.
+#   2. **페이싱**: 요청 바디의 `ticks`가 토큰 나이를 앞서지 않게 경계 앞에서 얼린다.
+#   3. 원본의 **15초 포기**(`WAIT_GIVEUP_MS`) 전에 회차를 접는다. 넘기면 `wait_gave_up`
+#      과 `unranked`가 고정되어 그 주행은 영구히 제출 자격이 없다.
 #
-#   직접 요청 시점의 도달 행은 `i*25 - 19 ~ -10`(생성이 `int(cam_row)+13`까지 가므로)이고,
-#   창 아래끝보다 6~15행 깊다. 하네스가 그보다 이르게 보내면 거부된다 — 08-15 00:27
-#   주행에서 청크 4를 77행(아래끝+2)에서 6회 거부당해 실측했다. 같은 요청이 00:04
-#   주행에서는 통했으므로 그 사이 서버가 조여진 것으로 읽는다(클라이언트는 그대로였다).
-#
-# 그래서 하네스가 하는 일은 두 가지로 줄어든다.
-#
-# 1. **대기 중 틱을 멈춘다.** `tick_count`가 자라지 않으므로 (a) 420틱 포기 판정에
-#    걸리지 않아 `unranked`가 되지 않고, (b) **행 생성 지연이 정확히 1틱으로 묶인다.**
-#    지연이 있으면 그 행이 `step()`을 한 번 덜 받아 서버의 재현과 어긋나지만, 1틱은
-#    차량이 2~3px 움직이는 양이고 히트박스 여유보다 훨씬 작다. 무엇보다 **모든 실제
-#    플레이어가 네트워크 지연만큼 같은 일을 겪으므로 서버는 이것을 견뎌야 한다.**
-# 2. **페이싱**: 경계에 닿기 전에 토큰 나이가 시뮬레이션 시간을 따라잡게 한다. 틱 전체를
-#    멈추는 것은 배속과 같아 시뮬레이션에 보이지 않는다.
-func _search_chunk_ok(g) -> bool:
-	if not search_live:
+#   얼리는 방법도 원본에 맡긴다 — `_sim_acc`를 `FIXED_DT`로 두고 한 틱만 흘리면
+#   `_needs_chunk_wait`가 그 틱을 삼키며 `want_chunk`를 살려 둔다. `guard < 1`로 프레임당
+#   한 번으로 묶어야 한다. 무조건 true를 돌려주면 `_sim_acc`를 매번 다시 채우므로 한
+#   프레임 안에서 무한 반복한다.
+func _search_need_ci(g) -> int:
+	return maxi(int(g.cam_row) + 14, 0) / maxi(g.chunk_rows, 1)
+
+# `need_ci` 앞의 자리를 "요청 중"으로 걸어 원본의 선행 요청을 삼킨다. `need_ci`가 그
+# 자리에 닿으면 풀어 준다 — 그 자리는 원본 `_needs_chunk_wait`가 제 깊이에서 요청해야
+# 한다. 풀어 주지 않으면 영원히 못 받아 15초 뒤 `unranked`가 된다.
+# `claim_run`이 매 회차 `_chunk_pending`을 비우므로 매 틱 다시 건다.
+func _search_gate_prefetch(need_ci: int) -> void:
+	for k in search_blocked.keys():
+		if int(k) <= need_ci:
+			search_blocked.erase(k)
+			ranking._chunk_pending.erase(k)
+	for k2 in range(need_ci + 1, need_ci + 4):
+		if not ranking.active_chunks.has(k2) and not ranking._chunk_pending.has(k2):
+			ranking._chunk_pending[k2] = true
+			search_blocked[k2] = true
+
+func _search_chunk_ok(g, guard: int) -> bool:
+	if not search_live or g.replay_mode:
 		return true
 	var now := Time.get_unix_time_from_system()
+	var need_ci: int = _search_need_ci(g)
+	_search_gate_prefetch(need_ci)
 
-	# --- 시드를 기다리는 중 ---------------------------------------------------
-	if g.stall_since >= 0:
-		var sci: int = maxi(g.gen_next, 0) / g.chunk_rows
-		if ranking.chunk_seed_of(sci) != 0:
+	if ranking.chunk_seed_of(need_ci) != 0:
+		if search_stall_t0 > 0.0 and search_stall_ci == need_ci:
 			print("[search] 청크 %d 확보 (%.1fs 정지, 틱 %d, %d행)" % [
-					sci, now - search_stall_t0, g.tick_count, g.max_row - g.start_row])
+					need_ci, now - search_stall_t0, g.tick_count,
+					g.max_row - g.start_row])
 			search_stall_t0 = 0.0
 			search_chunk_fail = 0
-			return true
-		if search_capped:
-			# 상한 판정 뒤에도 stall이면 이 회차가 상한 너머로 나간 것이다. 시드는
-			# 오지 않으므로 기다릴 이유가 없고, 월드도 이미 갈라졌다 — 버린다.
-			g._sim_acc = 0.0
-			search_stall_t0 = 0.0
-			_search_retry()
-			return false
-		if search_stall_t0 <= 0.0:
-			search_stall_t0 = now
-			search_stall_ci = sci
-			print("[search] 청크 %d 대기 — 틱을 멈춘다 (틱 %d, 나이 %.0fs, %d행, 아래끝 %d)" % [
-					sci, g.tick_count, _search_token_age(), g.max_row - g.start_row,
-					(sci - 1) * g.chunk_rows])
-		if now - search_stall_t0 < SEARCH_STALL_GIVEUP:
-			# ★ `_sim_acc`는 **여기서만** 비운다. 무조건 비우면 아래에서 "틱 하나를
-			#   흘린다"가 한 틱도 돌지 않아 `_ensure_chunk`가 재요청을 못 하고 교착에
-			#   빠진다(연습에서 실측: 75초 동안 재요청 0건).
-			g._sim_acc = 0.0
-			return false
-		# 원본은 대기 중 매 틱 재요청하지만 틱이 멈춰 있어 재요청이 안 나간다. 한 번
-		# 틱을 흘려 `_ensure_chunk`가 다시 `want_chunk`를 부르게 한다(간격 = GIVEUP).
-		search_chunk_fail += 1
-		search_stall_t0 = now
+		return true
+
+	# 원본이 이미 포기했다 = 로컬 시드로 새어 나갔고 `unranked`가 켜졌다. 살릴 수 없다.
+	if g.wait_gave_up:
+		print("[search] 청크 %d — 원본이 15초 만에 포기(unranked). 회차를 버린다 (%d행)" % [
+				need_ci, g.max_row - g.start_row])
+		search_stall_t0 = 0.0
 		_search_reap_chunks()
-		print("[search] 청크 %d 무응답/거부 (연속 %d회) — 재요청한다" % [
-				sci, search_chunk_fail])
-		if search_chunk_fail >= SEARCH_CHUNK_FAIL_MAX:
-			# 이 청크는 얻을 수 없다. 상한으로 판정하고 그 안에서 점수를 올린다.
-			search_capped = true
-			search_row_cap = sci * g.chunk_rows - 22
-			print("[search] ★ 청크 %d를 못 받는다 = 행수 상한. 이제 %d행 안에서 점수를 올린다 (최선 %d점/%d행)" % [
-					sci, search_row_cap, search_best_score, search_best_rows])
-			g.bot_rows = search_row_cap
-			search_stall_t0 = 0.0
-			# 이 회차는 시드를 못 받아 멈춰 있고 월드도 갈라졌다. 살리지 않는다 —
-			# 상한이 적용된(`bot_rows`) 새 회차로 넘어간다.
-			_search_retry()
-			return false
-			search_stall_t0 = 0.0
-		# 정확히 한 틱만 흘린다. 그 틱의 `_gen_row`가 `_ensure_chunk`를 다시 부르고,
-		# 거기서 원본의 `want_chunk`가 재요청을 낸다. 한 프레임분을 그대로 두면
-		# 배속만큼(60틱) 흘러 행 생성 지연이 그만큼 커진다.
-		g._sim_acc = g.FIXED_DT
-		return true
+		_search_retry()
+		return false
 
-	if search_capped:
-		# 상한이 목표에 못 미치는 것이 확정됐으면 더 갈아 봐야 의미가 없다. 즉시 끝낸다 —
-		# 청크 예산이 닫힌 창에서 헛회차를 수백 번 도는 것을 막는다.
-		# (보너스 상한을 넉넉히 20%로 봐도 `sfloor`에 못 닿는 경우)
-		if search_floor > 0 and float(search_row_cap) * 1.2 < float(search_floor):
-			print("[search] ★ 상한 %d행으로는 %d점에 닿을 수 없다 — 탐색을 끝낸다 (제출 없음)" % [
-					search_row_cap, search_floor])
-			_search_finish()
-			return false
-		# ★ 상한 뒤에도 차단은 유지해야 한다. 안 그러면 원본의 선행 요청이 회차마다
-		#   한 건씩 나가고, 상한 뒤에는 회차가 초당 여러 번 돌기 때문에 그것만으로
-		#   남의 서버에 수십~수백 건이 쌓인다(실측: 82회차에 72건).
-		var cap_ci: int = _search_frontier_ci()
-		if cap_ci >= 0:
-			_search_block_prefetch(cap_ci)
-		search_stall_t0 = 0.0
-		return true
-
-	# --- 요청 시점 자동 보정 -------------------------------------------------
-	#
-	# 서버가 받아들이는 깊이를 우리는 모른다 — **하룻밤에 두 번 달라졌다.** 00:04에는
-	# 아래끝+2가 통했고 00:27에는 같은 요청이 거부됐다(클라이언트는 그대로였다).
-	# 그래서 고정값을 쓰지 않고 얕은 쪽에서 시작해 거부되면 깊게 옮긴다.
-	#
-	# 깊어질 수 있는 한계는 **생성이 그 청크를 필요로 하기 직전**이다. 그 지점을 넘기면
-	# `_gen_row`가 실패해 행 생성이 늦어지고, 그 행이 `step()`을 한 번 덜 받아 서버의
-	# 재현과 갈라진다(연습 실측: 그런 trace를 재생하면 438행 접두사가 241행으로 줄었다).
-	# 그래서 그 직전에 멈춰 요청한다 — 지연 0틱, 가능한 가장 깊은 자리.
-	var ci := _search_frontier_ci()
-	if ci < 0:
-		search_stall_t0 = 0.0
-		return true
-	# 프런티어가 옮겨 갔다 = 앞 청크를 받았다. 타이머를 여기서만 초기화한다 —
-	# 매 프레임 초기화하면 `search_req_t`도 함께 풀려 요청이 프레임마다 나간다
-	# (연습에서 모의 서버에 11,440건이 나갔다).
-	_search_block_prefetch(ci)
-	if ci != search_stall_ci:
-		if search_stall_t0 > 0.0 and ci > search_stall_ci:
-			print("[search] 청크 %d 확보 (%.1fs 정지, 아래끝+%d)" % [
-					search_stall_ci, now - search_stall_t0, search_chunk_off])
-			search_chunk_fail = 0
-		search_stall_ci = ci
-		search_stall_t0 = 0.0
-	var boundary: int = ci * g.chunk_rows
-	var reached: int = g.max_row - g.start_row
-	var natural: bool = int(g.cam_row) + 14 >= boundary or g.gen_next >= boundary
-	if not natural and reached < (ci - 1) * g.chunk_rows + search_chunk_off:
-		search_stall_t0 = 0.0
-		return true                      # 아직 요청 시점이 아니다
-
-	g._sim_acc = 0.0
-
-	# 페이싱: 요청 바디의 `ticks`가 토큰 나이보다 앞서면 사람이 만들 수 없는 조합이다.
+	# 페이싱: `ticks/60`이 토큰 나이를 앞선 요청은 사람이 만들 수 없는 조합이다.
+	# 여기서 얼리면 `_sim_tick`이 아예 돌지 않아 원본의 15초 시계도 시작되지 않는다.
 	var age := _search_token_age()
 	var want := float(g.tick_count) / 60.0 + SEARCH_PACE_MARGIN
 	if search_pace and age >= 0.0 and age < want:
 		if now - search_pace_note > 10.0:
 			search_pace_note = now
 			print("[search] 페이싱: 청크 %d 요청 전 나이 %.0fs / 필요 %.0fs (틱 %d, %d행)" % [
-					ci, age, want, g.tick_count, reached])
+					need_ci, age, want, g.tick_count, g.max_row - g.start_row])
+		g._sim_acc = 0.0
 		return false
 
-	if search_stall_t0 <= 0.0:
+	var reached: int = g.max_row - g.start_row
+	if search_stall_t0 <= 0.0 or search_stall_ci != need_ci:
+		search_stall_ci = need_ci
 		search_stall_t0 = now
-		search_req_t = 0.0
-		print("[search] 청크 %d 요청 (%d행, 아래끝+%d%s, 틱 %d, 나이 %.0fs)" % [
-				ci, reached, reached - (ci - 1) * g.chunk_rows,
-				" 생성한계" if natural else "", g.tick_count, age])
-	if search_req_t <= 0.0 or now - search_req_t > 6.0:
-		search_req_t = now
-		ranking._chunk_pending.erase(ci)
-		ranking.want_chunk(ci, g.input_trace, g.tick_count, last_char)
-	if now - search_stall_t0 < SEARCH_STALL_GIVEUP:
+		search_req_t = 0.0       # 새 청크는 간격을 기다리지 않고 즉시 한 번 물어본다
+		print("[search] 청크 %d 대기 — 원본이 요청한다 (%d행, 아래끝+%d, 틱 %d, 나이 %.0fs)" % [
+				need_ci, reached, reached - (need_ci - 1) * g.chunk_rows,
+				g.tick_count, age])
+	if now - search_stall_t0 >= SEARCH_WAIT_ABORT:
+		search_chunk_fail += 1
+		search_stall_t0 = 0.0
+		_search_reap_chunks()
+		print("[search] 청크 %d 무응답/거부 %.0fs (연속 %d회, %d행) — 회차를 접는다" % [
+				need_ci, SEARCH_WAIT_ABORT, search_chunk_fail, reached])
+		if search_chunk_fail >= SEARCH_CHUNK_FAIL_MAX:
+			# 이 청크는 얻을 수 없다. 상한으로 판정하고 그 안에서 점수를 올린다.
+			# 봇을 `boundary - 22`에서 멈추면 `need_ci`가 이 청크로 넘어오지 않는다
+			# (`cam_row + 14 < boundary`가 유지된다) — 그래서 다시 얼지 않는다.
+			search_capped = true
+			search_row_cap = need_ci * g.chunk_rows - 22
+			print("[search] ★ 청크 %d를 못 받는다 = 행수 상한 %d행 (최선 %d점/%d행)" % [
+					need_ci, search_row_cap, search_best_score, search_best_rows])
+			g.bot_rows = search_row_cap
+			# 상한이 `sfloor`에 못 미치면(보너스를 넉넉히 20%로 봐도) 더 갈아 봐야
+			# 의미가 없다 — 헛회차를 수백 번 도는 것을 막는다.
+			if search_floor > 0 and float(search_row_cap) * 1.2 < float(search_floor):
+				print("[search] ★ 상한 %d행으로는 %d점에 닿을 수 없다 — 탐색을 끝낸다 (제출 없음)" % [
+						search_row_cap, search_floor])
+				_search_finish()
+				return false
+		_search_retry()
 		return false
 
-	search_stall_t0 = 0.0
-	_search_reap_chunks()     # 이 회차가 받아 둔 시드를 잃지 않는다 (안 거두면 다시 받아온다)
-	if not natural and search_chunk_off < 10:
-		# 더 깊은 자리에서 다시 물어본다. 이 회차를 버리지 않는다. 폭은 좁게 둔다 —
-		# 실측에서 한 청크가 막히면 +2부터 +18까지 전부 거부됐다(깊이 문제가 아니다).
-		search_chunk_off += 4
-		print("[search] 청크 %d 거부 — 요청 깊이를 아래끝+%d로 옮긴다" % [
-				ci, search_chunk_off])
-		return true
-	# 생성 한계까지 갔는데도 안 준다. 이 청크는 얻을 수 없다.
-	search_chunk_fail += 1
-	print("[search] 청크 %d 생성한계에서도 거부 (연속 %d회)" % [ci, search_chunk_fail])
-	if search_chunk_fail >= SEARCH_CHUNK_FAIL_MAX:
-		search_capped = true
-		search_row_cap = boundary - 22
-		print("[search] ★ 청크 %d를 못 받는다 = 행수 상한. 이제 %d행 안에서 점수를 올린다 (최선 %d점/%d행)" % [
-				ci, search_row_cap, search_best_score, search_best_rows])
-		g.bot_rows = search_row_cap
-		return true
-	_search_retry()
-	return false
+	# ★ **요청 간격을 반드시 묶는다.** 원본은 대기 중 매 틱 `want_chunk`를 부르고,
+	#   서버가 즉답(403/429)하면 `_chunk_pending`이 바로 풀려 다음 틱이 또 보낸다.
+	#   08-15 11:03 실측: 청크 9 한 자리에 **275건**이 나갔다(초당 8건). 남의 단일 스레드
+	#   서버에 그것은 그 자체로 사고이고, 429 스로틀에 걸려 진짜 응답도 못 보게 된다.
+	#   간격은 원본 HTTP 타임아웃(5초)보다 길게 둔다 — 그래야 자리를 풀 때 이미 끝난
+	#   요청이라 중복이 나가지 않는다.
+	if now - search_req_t < SEARCH_REQ_INTERVAL:
+		ranking._chunk_pending[need_ci] = true     # 간격 안에서는 원본의 요청을 삼킨다
+		search_blocked[need_ci] = true
+		g._sim_acc = 0.0
+		return false
+	search_req_t = now
+	search_blocked.erase(need_ci)
+	ranking._chunk_pending.erase(need_ci)
+	# 정확히 한 틱만 흘린다. 그 틱은 `_needs_chunk_wait`가 삼켜서 `tick_count`가 자라지
+	# 않으므로 시뮬레이션에 보이지 않고, 원본의 `want_chunk` 요청만 살아 있다.
+	g._sim_acc = g.FIXED_DT
+	return guard < 1
 
-# 원본 `_ensure_chunk`는 청크 ci-1에 들어설 때 정확히 ci를 선행 요청한다. 그 시점의
-# 도달 행은 창 아래끝보다 14행 얕아 **반드시 거부된다** — 실측에서 요청 총량의 절반
-# 이상이 이 헛요청이었고, `api/chunk`의 한도를 소진시킨 주범으로 본다(추정).
-# 그래서 프런티어와 그 앞 몇 칸을 "요청 중"으로 표시해 막고, 창에 들어와 하네스가
-# 직접 보낼 때만 그 자리를 풀어 준다.
-func _search_block_prefetch(ci: int) -> void:
-	for k in range(ci, ci + 4):
-		if not ranking.active_chunks.has(k):
-			ranking._chunk_pending[k] = true
-
-func _search_frontier_ci() -> int:
-	while search_next_ci < 4000 and ranking.chunk_seed_of(search_next_ci) != 0:
-		search_next_ci += 1
-		# 새 프런티어는 하네스가 직접 보낸다 — 아래에서 걸어 둔 자리를 풀어 준다.
-		ranking._chunk_pending.erase(search_next_ci)
-	return search_next_ci if search_next_ci < 4000 else -1
-
-# 원본 `_ensure_chunk`는 청크 ci에 들어설 때 `want_chunk(ci + 1)`을 선행 호출한다.
-# 그 시점의 trace는 창 아래끝보다 **얕아서 반드시 거부된다**(연습에서 80초에 25건).
-# 남의 단일 스레드 서버에 헛요청을 보내지 않도록 프런티어보다 앞선 자리를 미리
-# "요청 중"으로 표시해 둔다. `claim_run`이 매 회차 이 사전을 비우므로 매 틱 다시 건다.
+# 마감을 넘겼으면 새 회차를 띄우지 않는다. 게이트가 어떤 이유로든 회차를 끝내지 못하는
+# 상태에 빠져도 탐색이 반드시 종료되고 최선이 제출된다.
 func _search_retry() -> void:
 	# 마감 뒤에는 새 회차를 띄우지 않는다. 게이트가 어떤 이유로든 회차를 끝내지 못하는
 	# 상태에 빠져도 탐색이 반드시 종료되고 최선이 제출된다.
@@ -490,7 +437,7 @@ func _search_launch(base: Array, hand: int) -> void:
 	search_hand_tick = hand
 	search_over_seen = false
 	search_stall_t0 = 0.0
-	search_next_ci = 1               # 프런티어를 실제 보유분에서 다시 센다
+	search_blocked.clear()           # 걸어 둔 자리는 `claim_run`이 이미 비웠다
 	search_iter += 1
 	if search_live:
 		# 실토큰 주행. `claim_run(-1)`이 token/run_seed/chunks를 집어가므로 그 자리에

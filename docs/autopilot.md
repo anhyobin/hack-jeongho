@@ -422,3 +422,130 @@ MOCK_START=1 MOCK_CHUNK_WINDOW=1 BLOCK_POST=1 PORT=8788 python3 tools/local_prox
 `_ensure_chunk`의 선행 요청은 창보다 14행 얕고, 직접 요청은 이미 `_gen_row`가 실패한
 뒤다(§10.2의 지연). 그래서 사람이 그냥 플레이하면 청크 10 근처에서 `unranked`가 되거나
 재현이 어긋난다. **08-14 22:04 이후 보드에 250행을 넘는 항목이 하나도 없다.**
+
+---
+
+## 11. 프로토콜 v5 대응 — 대기를 원본에 맡기고, 요청 간격을 우리가 묶는다
+
+08-15 아침 배포(`index.1f6c46a4.pck`)가 청크 대기를 게임 안으로 옮겼다
+([`leaderboard-api.md`](leaderboard-api.md) §11.1). **§10에서 하네스가 손으로 만들던 것을
+원본이 직접 하므로 하네스가 줄어든다.**
+
+| v4에서 하네스가 하던 일 | v5 |
+|---|---|
+| 창 아래끝+N에서 직접 `want_chunk`를 보낸다 | **원본이 보낸다** (`_needs_chunk_wait`, 깊이 아래끝+15) |
+| `_sim_acc`를 조작해 경계 앞에서 틱을 멈춘다 | **원본이 멈춘다** (`_sim_tick` 맨 위에서 return) |
+| 거부되면 요청 깊이를 +4씩 옮긴다(`search_chunk_off`) | 필요 없다 — 깊이는 원본이 맞춘다 |
+| `g.stall_since >= 0`으로 대기를 감지한다 | **그 변수는 삭제됐다.** `need_ci`를 직접 계산한다 |
+
+남은 일은 네 가지다.
+
+```gdscript
+func _search_need_ci(g) -> int:
+	return maxi(int(g.cam_row) + 14, 0) / maxi(g.chunk_rows, 1)   # 원본과 같은 식
+```
+
+1. **원본의 선행 요청을 삼킨다.** `_ensure_chunk`가 청크 ci에 들어설 때 부르는
+   `want_chunk(ci + 1)`은 창보다 19행 얕아 항상 거부된다. `need_ci`보다 앞선 자리를
+   `ranking._chunk_pending`에 미리 걸어 막고, `need_ci`가 그 자리에 오면 **반드시 풀어
+   준다**(안 풀면 원본이 15초 뒤 포기해 `unranked`가 된다). → `_search_gate_prefetch()`
+2. **페이싱**은 그대로 필요하다. 얼리는 동안 `_sim_tick`이 아예 돌지 않으므로 원본의 15초
+   시계도 시작되지 않는다 — 페이싱은 공짜다.
+3. **원본의 15초 포기 전에 회차를 접는다**(`SEARCH_WAIT_ABORT = 13.0`). `wait_gave_up`이
+   고정되면 그 주행은 영구 `unranked`이므로 살릴 수 없다. 접을 때 `_search_reap_chunks()`를
+   먼저 부른다.
+4. **`Main._process`의 토큰 자동 재발급을 막는다.** → `_bot_hold_token()`
+
+### 11.1 `_bot_hold_token()` — 새로 생긴 자동 재발급이 탐색을 죽인다
+
+v5의 `Main._process`는 대기 화면에서 토큰 나이가 600초를 넘으면 `ranking.start_run()`을
+부른다. 탐색은 **토큰 하나와 그 토큰이 발급한 청크 시드** 위에서 수십 회차를 돌고, 회차
+사이에는 `app_state`가 `play`가 아닌 프레임이 반드시 있다. 한 번 걸리면 토큰·시드·수확한
+청크가 통째로 날아간다.
+
+`tools/make_bot_patch.py`가 그 한 줄을 치환한다(원본 라인 수는 유지된다).
+
+```python
+("replace",
+ "\tif ranking.token != \"\" and ranking.token_age() > ranking.TOKEN_STALE_SEC:\n",
+ "\tif not _bot_hold_token() and ranking.token != \"\""
+ " and ranking.token_age() > ranking.TOKEN_STALE_SEC:\n"),
+```
+
+`_process`는 `_sim_tick` 밖이므로 서버의 재현과 무관하다 — 시뮬레이션 코드를 건드리지
+않는다는 규칙을 깨지 않는다.
+
+### 11.2 ★ 요청 간격을 묶지 않으면 초당 8건이 나간다 (275건 사고)
+
+**v5에서 가장 비싸게 배운 것.** 원본은 대기 중 **매 틱** `want_chunk`를 부른다. 서버가
+즉답(`403`/`429`)하면 `_chunk_pending`이 콜백에서 바로 풀리고, 다음 틱이 또 보낸다.
+v4에서는 하네스가 요청을 직접 보내며 6초 간격을 두었는데, "이제 원본이 제 깊이에서
+보내니 간격 제한은 필요 없다"고 판단해 그것을 지웠다. 틀렸다.
+
+11:03 실서버 주행에서 **청크 9 한 자리에 275건**이 나갔다(전체 282건). 절반이 429였고,
+그 때문에 진짜 응답도 볼 수 없었다.
+
+고친 형태 — 원본의 HTTP 타임아웃(5초)보다 긴 간격을 두고, 간격 안에서는 자리를 걸어
+원본의 요청을 삼킨다.
+
+```gdscript
+const SEARCH_REQ_INTERVAL := 6.0     # > want_chunk 타임아웃(5.0) 이어야 중복이 없다
+
+if now - search_req_t < SEARCH_REQ_INTERVAL:
+	ranking._chunk_pending[need_ci] = true      # 원본의 요청을 삼킨다
+	search_blocked[need_ci] = true
+	g._sim_acc = 0.0
+	return false
+search_req_t = now
+search_blocked.erase(need_ci)
+ranking._chunk_pending.erase(need_ci)
+g._sim_acc = g.FIXED_DT                          # 딱 한 틱 흘린다
+return guard < 1                                 # ★ 프레임당 1회로 묶는다
+```
+
+`return guard < 1`이 핵심이다. `_sim_acc = FIXED_DT`를 두고 무조건 `true`를 돌려주면 한
+프레임 안에서 그 두 줄이 서로를 먹여 **무한 반복**한다(틱 루프 조건이 매 반복
+`bot_tick_ok`를 부른다).
+
+검증은 `MOCK_CHUNK_MAX=8`로 실서버의 벽을 그대로 모의해서 했다 — 같은 상황에서
+**275건 → 3건**, 상한 판정 뒤 56회차를 돌면서도 총 13건이었다.
+
+### 11.3 실측 (08-15)
+
+| | 연습(모의, 상한 없음) | 실서버 |
+|---|---|---|
+| 결과 | 520점 / 490행 | **500점 / 466행 (rep 0, 1위)** |
+| 회차 | 5 | **3** |
+| 탐색 시간 | 170s | 158s |
+| `api/chunk` | 20건 (거부 0) | **18건 (거부 0)** |
+| 실서버 접촉 총량 | — | 25건 (`start` 3, `chunk` 18, `scores` GET 3, POST 1) |
+| `unranked` | 0 | 0 |
+| 제출 재현 | — | `rows=466 score=500 ticks=9257` 정확히 일치 |
+
+관문 2종도 v5에서 통과했다 — 재생 동일성 `rows 40/40 score 40/40 ticks 3316/3316`,
+변이 재생 `rows=1 (원본 40) 줄었다`.
+
+### 11.4 연습 프록시 주의 — 모의 토큰을 1시간 전으로 발급하면 안 된다
+
+v4까지 `tools/local_proxy.py`는 모의 토큰의 epoch을 **1시간 전**으로 두어 페이싱·나이
+대기를 건너뛰었다. v5에서는 그것이 `token_stale()`을 켜서 `Main._process`/`begin_game`이
+토큰을 재발급해 버린다. 기본을 **갓 발급(0초)** 으로 바꿨고, 빨리 돌리려면 `space=0`을
+쓰거나 `MOCK_TOKEN_AGE`를 600 미만으로 준다.
+
+```bash
+# 관문 → 연습 → 실서버, 08-15 v5에서 실제로 쓴 순서
+python3 tools/pack.py --verify            # 새 pck에서도 바이트 동일해야 한다
+python3 tools/make_bot_patch.py
+python3 tools/pack.py -o _local/index.1f6c46a4.pck \
+        --text scripts/game.gd=patch/game.gd --text scripts/main.gd=patch/main.gd
+# _local/index.html 의 fileSizes 를 새 바이트 수로 고친다
+
+MOCK_START=1 MOCK_CHUNK_WINDOW=1 BLOCK_POST=1 PORT=8810 python3 tools/local_proxy.py
+#   관문: /?bot=1&sv=1&bt=120&sspd=25
+#   연습: /?bot=1&ss=1&bt=520&sfloor=500&sspd=60&sttl=300
+# 요청 간격 제한을 재려면 벽을 모의한다:
+MOCK_START=1 MOCK_CHUNK_WINDOW=1 MOCK_CHUNK_MAX=8 BLOCK_POST=1 PORT=8814 python3 tools/local_proxy.py
+
+ALLOW_POST_NAME=<닉> ALLOW_POST_MIN_SCORE=<하한> PORT=8816 python3 tools/local_proxy.py
+#   본 주행: /?bot=1&ss=1&bt=500&sfloor=400&sspd=60&sttl=300&bn=<닉>&bsub=1&bchar=peccy
+```

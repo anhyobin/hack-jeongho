@@ -19,8 +19,9 @@ var chunk_rows := 25
 var cur_chunk := -1
 var base_seed := 0
 var unranked := false
-var stall_since := -1
-const STALL_GIVEUP_TICKS := 420
+var wait_since_ms := -1
+var wait_gave_up := false
+const WAIT_GIVEUP_MS := 15000
 var vrng: RandomNumberGenerator = null
 var gen_next := 0
 var start_row := 0
@@ -48,6 +49,8 @@ func setup(p_main: Node, char_name: String) -> void:
 
 	cur_chunk = -1
 	unranked = false
+	wait_gave_up = false
+	wait_since_ms = -1
 	chunk_rows = maxi(1, main.ranking.active_chunk_rows)
 
 	vrng = RandomNumberGenerator.new()
@@ -109,35 +112,43 @@ func _ensure_chunk(idx: int) -> bool:
 	var s := 0
 	if main != null:
 		s = main.ranking.chunk_seed_of(ci)
-
-	var online: bool = main != null and main.ranking.active_token != "" and main.ranking.active_token != "TEST"
-
-	if s == 0 and not online:
-		rng.seed = hash("local:%d:%d" % [ci, base_seed]) & 4503599627370495
-		unranked = true
-		stall_since = -1
-		cur_chunk = ci
-		return true
-	if s == 0:
-
-
-
-		if stall_since < 0:
-			stall_since = tick_count
-		if main != null and not replay_mode:
-			main.ranking.want_chunk(ci, input_trace, tick_count, main.last_char)
-		if tick_count - stall_since < STALL_GIVEUP_TICKS:
-			return false
-		rng.seed = hash("local:%d:%d" % [ci, base_seed]) & 4503599627370495
-		unranked = true
-	else:
+	if s != 0:
 		rng.seed = s
-	stall_since = -1
-	cur_chunk = ci
+	else:
 
+		rng.seed = hash("local:%d:%d" % [ci, base_seed]) & 4503599627370495
+		unranked = true
+	cur_chunk = ci
 	if main != null and not replay_mode:
 		main.ranking.want_chunk(ci + 1, input_trace, tick_count, main.last_char)
 	return true
+
+func _needs_chunk_wait() -> bool:
+
+
+
+
+	if replay_mode or main == null or wait_gave_up:
+		return false
+	var tok: String = main.ranking.active_token
+	if tok == "" or tok == "TEST":
+		return false
+	var need_ci: int = maxi(int(cam_row) + 14, 0) / chunk_rows
+	if main.ranking.chunk_seed_of(need_ci) != 0:
+		wait_since_ms = -1
+		return false
+	main.ranking.want_chunk(need_ci, input_trace, tick_count, main.last_char)
+	var now_ms := Time.get_ticks_msec()
+	if wait_since_ms < 0:
+		wait_since_ms = now_ms
+	if now_ms - wait_since_ms < WAIT_GIVEUP_MS:
+		return true
+
+
+	wait_since_ms = -1
+	wait_gave_up = true
+	unranked = true
+	return false
 
 func _gen_row() -> bool:
 	var idx := gen_next
@@ -225,6 +236,9 @@ func _process(dt: float) -> void:
 			main.ui.set_score(score(), max_row)
 
 func _sim_tick(dt: float) -> void:
+
+	if _needs_chunk_wait():
+		return
 	tick_count += 1
 
 	if player.hopping and tick_count >= hop_end_tick:
