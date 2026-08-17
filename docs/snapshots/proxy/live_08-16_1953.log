@@ -1,0 +1,9 @@
+[   0.000] 게임: http://127.0.0.1:8860/   (API는 https://d15csla760jzen.cloudfront.net/로 중계)
+[   0.000] 오버라이드: name=None score=None rows=None
+[   0.000] 모의: start=False chunk 지연=0.15s | POST 차단=False
+[   0.000] 제출 허용: name=야호정호 최소점수=520
+[  13.725]   GET  /api/start -> 200 {"token": "1786877620.0f1ae653559c0620.12dd774d8775032d", "seed": "4065216949917526", "chunk_rows": 25, "chunks": {"0": 
+[  30.945]   POST /api/chunk i=2 ticks=716 trace=52건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 2, "seed": "1497083058572462"}
+[  41.115]   POST /api/chunk i=3 ticks=1346 trace=85건 ua='Mozilla/5.0 (Macintosh' -> 403 {"ok": false, "error": "rejected"}
+[  74.318]   GET  /api/start -> 200 {"token": "1786877680.c1c641acc97f16fc.e919b456af819c28", "seed": "1058687047272500", "chunk_rows": 25, "chunks": {"0": 
+[  74.321]   GET  /api/scores?char=peccy -> 200 {"scores": [{"name": "정호야호", "score": 500, "rows": 466, "stage": 23, "char": "peccy", "ts": 1786760111, "elapsed

@@ -214,8 +214,13 @@ class H(BaseHTTPRequestHandler):
             log(f"  POST /api/chunk 파싱 실패: {e}")
             self._json(400, {"ok": False, "error": "bad-body"})
             return
-        # 토큰 1개가 보증하는 청크 상한. 실서버는 청크 26까지(= 행 674) 주고 27을
-        # 창 안에서도 거부했다 — 발급 25건이 상한으로 보인다(추정).
+        # 토큰 1개가 보증하는 청크 상한을 모의한다(벽 상황 재현용).
+        #
+        # ⚠ 옛 주석은 "실서버는 청크 26까지 주고 27을 거부한다 — 발급 25건이 상한(추정)"
+        #   이었다. **08-17에 폐기됐다**: 700점 주행이 청크 27을 받았고(chunks 2~27, 26건),
+        #   그날 `api/chunk` 190건에 실제 403이 0건이었다. 상한이 있다면 그보다 깊다.
+        #   그리고 그 시절의 "거부" 판정 일부는 요청이 나가지도 않은 유령이었다
+        #   (`docs/autopilot.md` §13.1). 이 값은 이제 **실측 상한이 아니라 시험용 손잡이**다.
         cmax = os.environ.get("MOCK_CHUNK_MAX")
         if cmax and ci > int(cmax):
             log(f"  POST /api/chunk i={ci} -> 청크 상한({cmax}) 초과라 거부")

@@ -1,0 +1,13 @@
+[   0.000] 게임: http://127.0.0.1:8910/   (API는 https://d15csla760jzen.cloudfront.net/로 중계)
+[   0.000] 오버라이드: name=None score=None rows=None
+[   0.000] 모의: start=False chunk 지연=0.15s | POST 차단=False
+[   0.000] 제출 허용: name=야호정호 최소점수=500
+[   7.019]   GET  /api/start -> 200 {"token": "1786953770.7d0d15b47e7d92f1.87c5c68821e7f140", "seed": "4395643666301750", "chunk_rows": 25, "chunks": {"0": 
+[  24.096]   POST /api/chunk i=2 ticks=736 trace=42건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 2, "seed": "2227611918853128"}
+[  31.981]   POST /api/chunk i=3 ticks=1203 trace=74건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 3, "seed": "76571225281751"}
+[  43.998]   POST /api/chunk i=4 ticks=1924 trace=110건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 4, "seed": "3557248091607188"}
+[  54.943]   POST /api/chunk i=5 ticks=2581 trace=138건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 5, "seed": "3240407238987657"}
+[  65.714]   POST /api/chunk i=6 ticks=3222 trace=170건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 6, "seed": "1293320027098487"}
+[  89.036]   POST /api/chunk i=7 ticks=4610 trace=212건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 7, "seed": "3378716535148681"}
+[ 201.592]   GET  /api/start -> 200 {"token": "1786953965.febd07bc7dc3e67e.e718ee44c423a0f7", "seed": "4200946115412165", "chunk_rows": 25, "chunks": {"0": 
+[ 201.592]   GET  /api/scores?char=peccy -> 200 {"scores": [{"name": "정호야호", "score": 500, "rows": 466, "stage": 23, "char": "peccy", "ts": 1786760111, "elapsed

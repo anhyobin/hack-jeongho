@@ -28,6 +28,30 @@ var bot_waited := 0
 var bot_bumps := 0
 var bot_log_t := 0
 
+# --- 근접 보너스 (`bfarm`) --------------------------------------------------
+#
+# `score() = max_row - start_row + bonus`이고 `bonus`는 `on_near_miss`로만 +2씩 오른다.
+# 지금 실측은 466행에 보너스 34점(17건)뿐이다 — 점수의 7%다. 그런데 600점을 행으로만
+# 채우려면 550행 = 청크 22가 필요하고 그 깊이는 한 번도 못 받았다. 보너스를 올리면
+# **같은 600점을 430행 = 청크 17**로 만들 수 있고, 그 깊이는 세 번 받았다.
+#
+# 메커니즘 (`row.gd:356-380`, `game.gd:482`):
+#   1. `e["near"] = true`  ← 플레이어가 **그 행에 있고** `|Δx| < NEAR_DIST(84)`일 때
+#   2. `on_near_miss()`    ← 그 고라니가 **despawn할 때**(`|x-320| > 920`) 지급, 생존 조건
+#   죽음은 `|Δx| < half+18 = 62`이므로 **62~84px가 안전 밴드**다.
+#   ★ 그리고 `hazard_hit`은 `not player.hopping`일 때만 검사되고, `hop()`은 `row`/`x`를
+#     **홉 시작 즉시** 갱신한다 → 착지 행의 고라니에게 깃발이 꽂히는 동안 8틱 무적이다.
+#
+# ★★ 그런데 봇이 초당 3~7행으로 달리면 행이 `cam_row - 8`에서 해제되어 **지급 자체가
+#    사라진다.** 그래서 보너스가 낮은 원인이 (a) 깃발이 안 꽂혀서인지 (b) 꽂혔는데
+#    정산 전에 버려져서인지 **먼저 계측한다.** 아래 두 카운터가 그 답을 준다.
+var bot_farm := 0            # 0=끔, 1=정산 대기, 2=+근접 착지 선호 (`bfarm=N`)
+var bot_farm_life := 8       # 깃발 꽂힌 행의 남은 수명(행)이 이 값 이하면 전진을 멈춘다
+var bot_farm_held := 0       # 정산 대기로 보낸 틱
+var bot_farm_seek := 0       # 깃발을 노려 이탈을 미룬 틱
+var bot_farm_kmax := 90      # 깃발까지 이만큼(틱) 이내면 버틴다 (`bfkmax`)
+var bot_near_seen: Dictionary = {}   # 깃발이 꽂힌 것을 본 고라니 id → 행 (계측 전용)
+
 const BOT_STAY := 45      # 착지 후 이만큼(틱) 안전해야 전진한다 (0.75초)
 const BOT_PASS := 14      # 강제 이동 시 최소 여유
 const BOT_WATCH := 30     # 지금 칸에 계속 서 있어도 되는지 보는 창 (0.5초)
@@ -56,6 +80,15 @@ func _bot_setup() -> void:
 		bot_name = str(n)
 	var s = _bot_qs("bsub")
 	bot_submit = s != null and str(s) == "1"
+	var fm = _bot_qs("bfarm")
+	if fm != null and str(fm).is_valid_int():
+		bot_farm = int(str(fm))
+	var fl = _bot_qs("bflife")
+	if fl != null and str(fl).is_valid_int():
+		bot_farm_life = int(str(fl))
+	var km = _bot_qs("bfkmax")
+	if km != null and str(km).is_valid_int():
+		bot_farm_kmax = int(str(km))
 	# 지터용 난수는 반드시 별도 인스턴스를 쓴다. 월드는 `rng`만의 함수여야 하고,
 	# 여기서 `rng`를 한 번이라도 소모하면 서버 재현과 어긋난다(vrng와 같은 이유).
 	brng = RandomNumberGenerator.new()
@@ -190,6 +223,89 @@ func _bot_cell_safe(idx: int, px: float, k0: int, k1: int) -> bool:
 	if not _bot_rail_safe(r, px, k0, k1):
 		return false
 	return _bot_spawn_safe(r, px, k0, k1)
+
+func _bot_near_window() -> Array:
+	# 지금 이 칸에서 **아직 깃발이 없는** 고라니가 근접 밴드(84px)에 드는 틱 `kf`와
+	# 죽는 밴드(62px)에 드는 틱 `kk`를 잰다. 기회가 없으면 [-1, -1].
+	#
+	# ★ 왜 "버티다가 나간다"인가. `_step_entities`는 `_sim_tick`에서 `_bot_decide` **뒤에**
+	#   돌고, `hop()`은 `row`/`x`를 홉 시작 즉시 갱신한다. 그래서 깃발이 꽂히는 그 틱에
+	#   홉하면 이미 다음 행에 있는 것으로 판정되어 **깃발을 놓친다.** 한 틱은 반드시
+	#   그 행에 서 있어야 한다. 그 뒤 62px까지 22px(≈7.5틱)가 남고, 홉 8틱은 무적이므로
+	#   (`hazard_hit`은 `not player.hopping`일 때만 검사) 탈출할 시간이 있다.
+	#
+	# 틱 루프를 돌지 않고 1차식으로 푼다 — 60배속에서 프레임당 90틱 스캔은 비싸다.
+	var r = rows.get(player.row)
+	if r == null:
+		return [-1, -1]
+	var px := player.x
+	var bf := -1
+	var bk := -1
+	for e in r.entities:
+		if e["log"] or not bool(e["gorani"]) or bool(e["near"]):
+			continue
+		var v: float = float(e["speed"]) / 60.0     # px/틱
+		if absf(v) < 0.001:
+			continue
+		var dx0: float = float(e["x"]) - px
+		var kf := 0
+		var kk := 999
+		if absf(dx0) >= 84.0:
+			# 다가오지 않으면 기회가 없다
+			if (dx0 > 0.0) == (v > 0.0):
+				continue
+			kf = int(ceil((absf(dx0) - 84.0) / absf(v)))
+			kk = int(floor((absf(dx0) - 62.0) / absf(v)))
+		elif absf(dx0) >= 62.0:
+			kf = 0                                   # 이미 밴드 안 — 이번 틱에 꽂힌다
+			kk = 999 if (dx0 > 0.0) == (v > 0.0) else int(floor((absf(dx0) - 62.0) / absf(v)))
+		else:
+			continue                                 # 이미 죽는 거리다 (여기 오면 안 된다)
+		if bf < 0 or kf < bf:
+			bf = kf
+			bk = kk
+	# ★ **경고 중인 고라니(아직 스폰 전)가 진짜 기회다.**
+	#   `_bot_cell_safe`는 `pending_gorani > 0`이면 도착 예정만 보고 이탈한다. 그래서
+	#   고라니가 실제로 생길 때 봇은 이미 그 행에 없고, `r.entities`만 보는 위 루프는
+	#   기회를 영원히 못 찾는다 — 첫 측정에서 `노림=0`이 나온 이유가 정확히 이것이다.
+	#   `_bot_gorani_arrival`이 62px(죽는 거리) 도달 틱을 주므로, 거기서 22px만큼
+	#   앞선 틱이 깃발이 꽂히는 틱이다.
+	if r.pending_gorani > 0.0:
+		var spd: float = 245.0 * (1.0 + r.diff * 0.18)
+		if r.kind == Row.KIND_ROAD:
+			spd = r.lane_speed * r.gorani_mult
+		var kk2 := int(_bot_gorani_arrival(r, px))
+		var kf2 := kk2 - int(22.0 / maxf(spd, 1.0) * 60.0)
+		if kf2 >= 0 and (bf < 0 or kf2 < bf):
+			bf = kf2
+			bk = kk2
+	return [bf, bk]
+
+func _bot_farm_escape_ok(kf: int) -> bool:
+	# 깃발이 꽂힌 **직후** 나갈 칸이 실제로 있는가. 없으면 버티면 안 된다 —
+	# 기존 비상 로직은 "그 자리가 최선"이면 서 있기를 고른다(그러면 죽는다).
+	for d in[Vector2i(0, 1), Vector2i(-1, 0), Vector2i(1, 0), Vector2i(0, -1)]:
+		var t := _bot_move_target(d)
+		if t["ok"] and _bot_cell_safe(t["row"], t["x"], kf + 1, kf + 1 + BOT_WATCH):
+			return true
+	return false
+
+func _bot_near_scan() -> int:
+	# 깃발이 꽂힌 고라니를 세고 **가장 낮은 행**을 돌려준다(없으면 -1). 그 행이 먼저
+	# 해제되므로 정산을 잃을 위험이 가장 큰 깃발이다. 전부 읽기 전용 — `rng`도, 엔티티도
+	# 건드리지 않는다(§2 불변식). 살아 있는 행만 도는 것은 원본의 `step` 범위와 같다.
+	var lo := -1
+	for idx in range(int(cam_row) - 7, int(cam_row) + 15):
+		var r = rows.get(idx)
+		if r == null:
+			continue
+		for e in r.entities:
+			if not e["gorani"] or not e["near"]:
+				continue
+			bot_near_seen[e["node"].get_instance_id()] = idx
+			if lo < 0 or idx < lo:
+				lo = idx
+	return lo
 
 func _bot_slack() -> float:
 	# 남은 스크롤 여유(행). cam_row는 `max_row - 3`을 향해 4.5*dt로 당겨지므로
@@ -530,6 +646,43 @@ func _bot_decide() -> void:
 	# 사람의 반응 시간. 1틱에 첫 키가 들어가는 트레이스는 기계임이 자명하다.
 	if tick_count < bot_start_t:
 		return
+	# ★ 근접 보너스: **계측은 항상, 개입은 `bfarm`이 있을 때만.** 원인을 모르는 채로
+	#   행동을 바꾸면 무엇이 효과가 있었는지 알 수 없다.
+	var farm_hold := false
+	if bot_farm > 0 or tick_count % 3 == 0:
+		var pr := _bot_near_scan()
+		if bot_farm > 0 and pr >= 0:
+			# 행 pr은 `pr < int(cam_row) - 7`이 되면 step을 멈추고 정산이 사라진다.
+			# 남은 수명(행) = pr - (int(cam_row) - 7). 얕아지면 전진을 멈춘다.
+			# 전진을 멈춰도 cam_row는 auto(최대 0.62행/s)로 계속 오므로 무한정은 아니다 —
+			# 고라니의 despawn까지 3.1~6.4초가 필요하고 그 사이 cam은 4행쯤 온다.
+			if pr - (int(cam_row) - 7) <= bot_farm_life:
+				farm_hold = true
+				bot_farm_held += 1
+				bot_hops.clear()     # 진행 중인 전진 계획도 멈춘다
+	# ★★ `bfarm>=2`: 근접 보너스를 **노린다.**
+	#
+	#   봇은 `BOT_WATCH=30틱` 창으로 안전을 보므로 고라니가 약 161px일 때 이미 자리를
+	#   뜬다 — 근접 밴드 84px에 들어갈 일이 없다(실측 깃발 4건/149행, 보너스는 점수의 7%).
+	#   그래서 **깃발이 꽂히는 틱까지만 이탈을 미룬다.** 탈출은 기존 비상 분기가 한다:
+	#   깃발이 꽂히면 그 고라니는 `near=true`가 되어 다음 틱부터 `_bot_near_window`에서
+	#   빠지고, `farm_seek`이 풀려 `urgent`가 살아나 비상 분기가 즉시 뛴다.
+	#
+	#   버티는 조건을 좁게 잡는다 — 죽으면 그 회차가 통째로 날아가고, 앵커 때문에
+	#   되감기 여지도 없다(§앵커). 탈출 칸이 실제로 있는지까지 확인한다.
+	var farm_seek := false
+	if bot_farm >= 2 and not farm_hold and not bot_done:
+		var w := _bot_near_window()
+		var kf: int = int(w[0])
+		var kk: int = int(w[1])
+		if kf >= 0 and kf <= bot_farm_kmax and kk - kf >= 5 \
+				and tick_count + kf + 1 - bot_hop_t >= bot_gap \
+				and _bot_scroll_k() > kf + 300 \
+				and _bot_ride_left() > kf + 90 \
+				and _bot_farm_escape_ok(kf):
+			farm_seek = true
+			bot_farm_seek += 1
+			bot_hops.clear()
 	# 홉 간격 유지. 8틱(엔진 최소)을 연속으로 내는 것도 사람이 할 수 없는 일이다.
 	# 단 비상 분기는 이 제한을 받지 않는다 — 사람도 위험하면 즉시 반응한다.
 	var can_hop := tick_count - bot_hop_t >= bot_gap
@@ -559,7 +712,7 @@ func _bot_decide() -> void:
 	# 2. 구간 계획. 지금 이 틱에 출발할 수 있는지만 본다 — 안 되면 다음 틱에 다시
 	#    물으므로 출발 시각 탐색을 따로 할 필요가 없다.
 	var m := 0
-	if can_hop:
+	if can_hop and not farm_hold and not farm_seek:
 		# 구간마다 간격을 새로 뽑는다. 계획 중에만 바꾸므로 실행 중 타이밍은 고정된다.
 		# 8틱은 엔진 최소값이지만 보드의 검증된 상위 항목들도 3.8행/초를 내므로
 		# 연사 자체는 문제가 아니다. 완전히 고정된 8틱만 피한다.
@@ -621,6 +774,10 @@ func _bot_decide() -> void:
 	#    최대 15초를 버틸 수 있다(`_bot_slack`).
 	var urgent: bool = not _bot_cell_safe(player.row, player.x, 0, BOT_WATCH) \
 			or _bot_ride_left() < 90 or _bot_scroll_k() < 420 or stall > 420
+	# ★ 깃발을 노리는 동안만 조기 이탈을 막는다. `farm_seek`은 위에서 스크롤·통나무·
+	#   탈출칸·홉간격을 모두 확인한 뒤에만 켜지고, 깃발이 꽂히는 즉시 풀린다.
+	if farm_seek:
+		urgent = false
 	if not urgent:
 		bot_br = 4
 		bot_waited += 1
@@ -672,9 +829,13 @@ func _bot_decide() -> void:
 func _bot_after_death() -> void:
 	if not bot_on:
 		return
-	print("[run] score=%d rows=%d bonus=%d ticks=%d row=%d cam=%.1f 대기틱=%d bump=%d" % [
+	# ★ `깃발`은 `near`가 꽂힌 것을 관측한 고라니 수, `정산`은 실제로 지급된 건수
+	#   (`bonus/2`). 둘의 비가 이 변경의 판정 근거다 —
+	#     깃발 ≈ 정산  → 깃발이 애초에 안 꽂힌다 (착지 선호 `bfarm=2`가 필요하다)
+	#     깃발 ≫ 정산  → 꽂히는데 행이 먼저 버려진다 (정산 대기 `bfarm=1`이 답이다)
+	print("[run] score=%d rows=%d bonus=%d ticks=%d row=%d cam=%.1f 대기틱=%d bump=%d 깃발=%d 정산=%d 보류=%d 노림=%d" % [
 			score(), rows_crossed(), bonus, tick_count, player.row, cam_row, bot_waited,
-			bot_bumps])
+			bot_bumps, bot_near_seen.size(), bonus / 2, bot_farm_held, bot_farm_seek])
 	var dr = rows.get(player.row)
 	if dr != null:
 		var info := ""

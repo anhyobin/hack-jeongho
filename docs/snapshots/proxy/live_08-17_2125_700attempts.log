@@ -1,0 +1,56 @@
+[   0.000] 게임: http://127.0.0.1:8930/   (API는 https://d15csla760jzen.cloudfront.net/로 중계)
+[   0.000] 오버라이드: name=None score=None rows=None
+[   0.000] 모의: start=False chunk 지연=0.15s | POST 차단=False
+[   0.000] 제출 허용: name=정호돌격 최소점수=660
+[   7.566]   GET  /api/start -> 200 {"token": "1786969530.eea49db8ca1a83d5.846a6a9bb722ee46", "seed": "2107427202592182", "chunk_rows": 25, "chunks": {"0": 
+[  23.971]   POST /api/chunk i=2 ticks=684 trace=45건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 2, "seed": "2168428461697298"}
+[  31.115]   POST /api/chunk i=3 ticks=1109 trace=70건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 3, "seed": "967888793005464"}
+[  37.800]   POST /api/chunk i=4 ticks=1510 trace=98건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 4, "seed": "4439977950488706"}
+[  44.756]   POST /api/chunk i=5 ticks=1930 trace=127건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 5, "seed": "1641044999845775"}
+[  55.036]   POST /api/chunk i=6 ticks=2533 trace=166건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 6, "seed": "2990997944524700"}
+[  58.722]   POST /api/chunk i=7 ticks=2764 trace=192건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 7, "seed": "642281318119701"}
+[  63.195]   POST /api/chunk i=8 ticks=3032 trace=219건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 8, "seed": "1432259783611012"}
+[  76.356]   POST /api/chunk i=9 ticks=3822 trace=249건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 9, "seed": "2381034067318699"}
+[  92.586]   POST /api/chunk i=10 ticks=4790 trace=292건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 10, "seed": "2831985647289657"}
+[  99.344]   POST /api/chunk i=11 ticks=5195 trace=321건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 11, "seed": "707699720833656"}
+[ 110.430]   POST /api/chunk i=12 ticks=5853 trace=348건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 12, "seed": "2352154288014370"}
+[ 131.312]   POST /api/chunk i=13 ticks=7105 trace=458건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 13, "seed": "3800006998653097"}
+[ 301.370]   GET  /api/scores?char=peccy -> 200 {"scores": [{"name": "야호정호", "score": 600, "rows": 556, "stage": 27, "char": "peccy", "ts": 1786968669, "elapsed
+[ 301.674]   GET  /api/start -> 200 {"token": "1786969824.7bfee4f4abed971c.549251ea61f6360b", "seed": "4387688723069211", "chunk_rows": 25, "chunks": {"0": 
+[ 328.705]   GET  /api/start -> 200 {"token": "1786969851.3b54d45c9486145f.d13fff8784a192fe", "seed": "1338846300931131", "chunk_rows": 25, "chunks": {"0": 
+[ 351.284]   POST /api/chunk i=2 ticks=1065 trace=51건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 2, "seed": "1929749012719957"}
+[ 358.439]   POST /api/chunk i=3 ticks=1493 trace=80건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 3, "seed": "2418966008631179"}
+[ 363.957]   POST /api/chunk i=4 ticks=1822 trace=108건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 4, "seed": "447486410041532"}
+[ 384.083]   POST /api/chunk i=5 ticks=3025 trace=147건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 5, "seed": "1552910251564980"}
+[ 401.364]   POST /api/chunk i=6 ticks=4063 trace=187건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 6, "seed": "3730097032323207"}
+[ 410.327]   POST /api/chunk i=7 ticks=4595 trace=217건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 7, "seed": "3686548378770814"}
+[ 419.780]   POST /api/chunk i=8 ticks=5162 trace=246건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 8, "seed": "863251303353534"}
+[ 423.845]   POST /api/chunk i=9 ticks=5401 trace=273건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 9, "seed": "3042357947018633"}
+[ 427.638]   POST /api/chunk i=10 ticks=5628 trace=300건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 10, "seed": "4359431939592219"}
+[ 431.425]   POST /api/chunk i=11 ticks=5854 trace=327건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 11, "seed": "3914176421715167"}
+[ 445.188]   POST /api/chunk i=12 ticks=6679 trace=355건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 12, "seed": "2108216678970381"}
+[ 629.336]   GET  /api/scores?char=peccy -> 200 {"scores": [{"name": "야호정호", "score": 600, "rows": 556, "stage": 27, "char": "peccy", "ts": 1786968669, "elapsed
+[ 629.356]   GET  /api/start -> 200 {"token": "1786970152.b310229872ad90ab.89762c29fd6fa86b", "seed": "3455877801150517", "chunk_rows": 25, "chunks": {"0": 
+[ 797.581]   GET  /api/start -> 200 {"token": "1786970322.c3916dcb4c8b1c72.0e208de3f190e826", "seed": "1966026318551844", "chunk_rows": 25, "chunks": {"0": 
+[ 812.832]   POST /api/chunk i=2 ticks=502 trace=41건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 2, "seed": "2137040945232374"}
+[ 820.297]   POST /api/chunk i=3 ticks=935 trace=70건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 3, "seed": "805623039546059"}
+[ 831.369]   POST /api/chunk i=4 ticks=1608 trace=99건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 4, "seed": "944361406362378"}
+[ 838.434]   POST /api/chunk i=5 ticks=2012 trace=133건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 5, "seed": "3090447726518950"}
+[ 844.267]   POST /api/chunk i=6 ticks=2377 trace=163건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 6, "seed": "2495734935083958"}
+[ 853.601]   POST /api/chunk i=7 ticks=2934 trace=201건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 7, "seed": "3802437415328913"}
+[ 869.012]   POST /api/chunk i=8 ticks=3861 trace=243건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 8, "seed": "1625481420735916"}
+[ 879.351]   POST /api/chunk i=9 ticks=4475 trace=275건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 9, "seed": "198700016885145"}
+[ 884.964]   POST /api/chunk i=10 ticks=4813 trace=303건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 10, "seed": "977036580540925"}
+[ 889.251]   POST /api/chunk i=11 ticks=5055 trace=330건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 11, "seed": "2386877516001868"}
+[ 898.507]   POST /api/chunk i=12 ticks=5620 trace=360건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 12, "seed": "2395941462192914"}
+[ 909.830]   POST /api/chunk i=13 ticks=6296 trace=434건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 13, "seed": "1813545891858618"}
+[ 920.234]   POST /api/chunk i=14 ticks=6917 trace=460건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 14, "seed": "4316621629037825"}
+[ 934.382]   POST /api/chunk i=15 ticks=7766 trace=491건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 15, "seed": "3588458991480766"}
+[ 942.046]   POST /api/chunk i=16 ticks=8220 trace=530건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 16, "seed": "4007267441271307"}
+[ 946.772]   POST /api/chunk i=17 ticks=8504 trace=557건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 17, "seed": "774445586553579"}
+[ 956.350]   POST /api/chunk i=18 ticks=9073 trace=585건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 18, "seed": "984819771301238"}
+[ 961.742]   POST /api/chunk i=19 ticks=9397 trace=614건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 19, "seed": "3277105696088289"}
+[ 969.540]   POST /api/chunk i=20 ticks=9853 trace=641건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 20, "seed": "2905665481549910"}
+[ 977.402]   POST /api/chunk i=21 ticks=10325 trace=669건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 21, "seed": "1071324036624471"}
+[ 987.891]   POST /api/chunk i=22 ticks=10957 trace=699건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 22, "seed": "1801064221267760"}
+[1005.393]   POST /api/chunk i=23 ticks=11992 trace=744건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 23, "seed": "2511149145723490"}

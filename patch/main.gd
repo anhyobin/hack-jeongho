@@ -338,6 +338,46 @@ var search_best_score := 0           # 최선 trace의 점수 (상한에 닿으�
 var search_floor := 0                # 이 점수 이상이면 마감 시점에 제출한다 (`sfloor`)
 var search_capped := false           # 토큰의 행수 상한에 닿았는가
 var search_row_cap := 0              # 그 상한 안에서 봇이 멈출 행
+
+# ★★ 발급 경계 (`search_grant_row`) — 08-16에 세운 가설의 핵심 상태.
+#
+# 서버는 `api/chunk`마다 `trace`를 받아 **재생해서** 검증한다. 즉 토큰 하나에 대해 서버는
+# "이 토큰은 이런 역사로 여기까지 왔다"를 이미 한 번 인정한 상태가 된다. 그런데 체크포인트
+# 탐색은 **되감는다** — 접두사를 잘라 다른 갈래로 다시 간다. 되감은 지점이 *이미 발급받은
+# 청크를 요청했던 행보다 아래*라면, 다음 청크 요청이 들고 가는 trace는 서버가 그 토큰에
+# 대해 이미 검증한 trace와 **다른 역사**다.
+#
+# 기록과 맞는다 (`submissions-log.md` 세션 I / K):
+#   08-15 11:11 성공 — 1회차 182행, 3회차 접두사 173행 > 청크7 요청 ~161행 → 18/18 발급
+#   08-16 오늘 실패 — 1회차  47행, 3회차 접두사  38행 < 청크2 요청   41행 → 청크3 거부
+#   08-15 13:45     — 봇이 9행을 못 넘음 → 즉시 모순 → 깊이 1
+#
+# **아직 가설이다.** 이 저장소는 게이트 원인을 두 번 단정하고 두 번 틀렸다
+# (`leaderboard-api.md` §9.5). 그래서 두 가지를 같이 넣는다 —
+#   (a) 되감기를 이 경계 위로 클램프한다 (틀려도 손해가 없다: 경계 아래 되감기의 이득은 0)
+#   (b) 요청마다 (청크, 요청행, 그 회차의 접두사행, 경계, 결과)를 남긴다 → **1회 주행이 판정한다**
+var search_grant_row := 0            # 발급된 청크를 요청했던 행 중 최대 = 되감기 하한
+var search_req_row: Dictionary = {}  # ci -> 그 청크를 요청한 시점의 도달 행
+var search_req_base: Dictionary = {} # ci -> 그 요청을 낸 회차의 접두사 행
+var search_grant_log: Array = []     # 가설 검증용 판정표. 주행 끝에 한 번 출력한다
+# **행 번호로 클램프하지 않고 trace 자체를 앵커로 쓴다.** 행 번호만 보면 틀린다 —
+# 발급을 받아낸 회차가 `search_best`가 되지 못하면(점수가 낮으면) 다음 회차의 접두사는
+# *다른* 회차의 trace에서 잘리고, 행 번호는 경계 위인데 역사는 갈라져 있을 수 있다.
+# 그래서 서버가 실제로 검증한 **그 바이트열**을 들고 있다가 모든 회차가 그것을 잇게 한다.
+var search_anchor: Array = []        # 서버가 마지막으로 인정한 trace (요청 시점 스냅샷)
+var search_anchor_rows := 0          # 그 trace가 도달한 행
+var search_pend_trace: Array = []    # 지금 기다리는 청크 요청이 들고 나간 trace
+var search_pend_rows := 0
+var search_pend_ext := true           # 그 trace가 앵커를 잇는가 = 가설의 예측
+var search_clamp_n := 0              # 앵커로 되돌린 횟수 (로그 억제용)
+var search_stuck_n := 0              # 클램프가 걸린 채 전진이 0인 회차 수
+var search_anchor_free := false      # 갇힘 종료를 한 번만 처리하기 위한 플래그
+# ★ 클램프의 **대가**와 그 출구. 앵커를 지키면 깊은 되감기를 잃는다 — 모의에서 앵커
+#   140행에 갇혀 40회 이상 헛돌았다. 그 상태는 "이 토큰으로 더 깊이 갈 수 없다"는 뜻이고
+#   (더 깊은 요청은 가설상 거부된다), 역사적으로 그때 통한 것은 갈아 넣기가 아니라
+#   **새 토큰**이었다(11:03 청크9 3회 거부 → 11:11 새 토큰이 첫 요청에 발급, 깊이 19).
+#   그래서 헛돌기를 세어 끊는다. 남의 서버에 요청을 더 쌓지 않는 것이 요점이다.
+const SEARCH_STUCK_MAX := 25
 # 원본의 포기 한계는 `WAIT_GIVEUP_MS = 15000`(벽시계)이다. 그것을 넘기면 `wait_gave_up`
 # 이 고정되고 `unranked`가 켜져 회차를 살릴 수 없으므로, 반드시 그보다 먼저 접는다.
 # ★ 거부를 **최소화**한다. 08-15에 이 IP에서 청크 발급 78건 대 거부 283건이 나갔고,
@@ -452,6 +492,8 @@ func _search_chunk_ok(g, guard: int) -> bool:
 					g.max_row - g.start_row])
 			search_stall_t0 = 0.0
 			search_chunk_fail = 0
+			# ★ 발급됐다 = 서버가 **이 trace를 이 행까지 인정했다.** 되감기 하한을 올린다.
+			_search_note_chunk(need_ci, true)
 		return true
 
 	# 원본이 이미 포기했다 = 로컬 시드로 새어 나갔고 `unranked`가 켜졌다. 살릴 수 없다.
@@ -472,6 +514,14 @@ func _search_chunk_ok(g, guard: int) -> bool:
 			search_pace_note = now
 			print("[search] 페이싱: 청크 %d 요청 전 나이 %.0fs / 필요 %.0fs (틱 %d, %d행)" % [
 					need_ci, age, want, g.tick_count, g.max_row - g.start_row])
+		# ★★ 얼리는 동안 **대기 타이머를 흘려보내지 않는다.**
+		#   `search_stall_t0`은 아래 블록에서 켜지는데, 스큐 등으로 그것이 먼저 켜진 뒤
+		#   페이싱이 26초를 얼리면, 페이싱이 풀리는 순간 `now - search_stall_t0 >= 5.0`이
+		#   즉시 참이 되어 **요청을 한 번도 보내지 않고 회차를 접는다.**
+		#   08-17 08:58 주행이 정확히 그것이었고(프록시에 청크 요청 0건, 게임은 "거부"),
+		#   같은 유령 거부를 08-17 08:33 주행의 청크 5에서도 냈다 — 그 판정을 근거로
+		#   가설이 확정됐다고 썼다가 정정해야 했다. 타이머는 페이싱이 풀린 뒤에 켠다.
+		search_stall_t0 = 0.0
 		g._sim_acc = 0.0
 		return false
 
@@ -486,15 +536,30 @@ func _search_chunk_ok(g, guard: int) -> bool:
 		search_stall_t0 = now
 		if moved:
 			search_req_t = 0.0   # 새 청크는 간격을 기다리지 않고 즉시 한 번 물어본다
-		print("[search] 청크 %d 대기 — 원본이 요청한다 (%d행, 아래끝+%d, 틱 %d, 나이 %.0fs)" % [
+		# ★ 이 요청이 들고 나가는 것을 기록한다 — 도달 행과 **이 회차의 접두사 행**.
+		#   접두사가 `search_grant_row`보다 낮으면 가설상 이 요청은 거부된다. 그 예측을
+		#   요청 시점에 미리 찍어 두면, 결과와 대조해 가설을 판정할 수 있다.
+		if not search_req_row.has(need_ci):
+			search_req_row[need_ci] = reached
+			search_req_base[need_ci] = search_base_rows
+		# 서버가 검증할 **바로 그 trace**를 스냅샷한다. 회차는 이 뒤로도 자라므로
+		# 지금 복사해 두지 않으면 나중에는 같은 것을 재구성할 수 없다.
+		search_pend_trace = g.input_trace.duplicate(true)
+		search_pend_rows = reached
+		# ★ 가설의 예측을 **요청 시점에** 확정해 둔다. 이 trace가 서버가 마지막으로
+		#   인정한 trace(앵커)를 잇는가 — 잇지 않으면 가설은 "거부"를 예측한다.
+		search_pend_ext = _search_trace_extends(g.input_trace, search_anchor)
+		print("[search] 청크 %d 대기 — 원본이 요청한다 (%d행, 아래끝+%d, 틱 %d, 나이 %.0fs) 앵커=%d행%s" % [
 				need_ci, reached, reached - (need_ci - 1) * g.chunk_rows,
-				g.tick_count, age])
+				g.tick_count, age, search_anchor_rows,
+				"" if search_pend_ext else "  ← 가설: 앵커를 잇지 않는 trace 이므로 거부 예측"])
 	if now - search_stall_t0 >= SEARCH_WAIT_ABORT:
 		search_chunk_fail += 1
 		search_stall_t0 = 0.0
 		_search_reap_chunks()
 		print("[search] 청크 %d 무응답/거부 %.0fs (연속 %d회, %d행) — 회차를 접는다" % [
 				need_ci, SEARCH_WAIT_ABORT, search_chunk_fail, reached])
+		_search_note_chunk(need_ci, false)
 		if search_chunk_fail >= SEARCH_CHUNK_FAIL_MAX:
 			# 이 청크는 얻을 수 없다. 상한으로 판정하고 그 안에서 점수를 올린다.
 			# 봇을 `boundary - 22`에서 멈추면 `need_ci`가 이 청크로 넘어오지 않는다
@@ -528,10 +593,117 @@ func _search_chunk_ok(g, guard: int) -> bool:
 	search_req_t = now
 	search_blocked.erase(need_ci)
 	ranking._chunk_pending.erase(need_ci)
+	# ★ 원본의 500ms 스로틀(`_chunk_last_try`, 08-15 21:03 배포)도 같이 비운다.
+	#   비우지 않으면 우리가 흘려보낸 **그 한 틱**이 스로틀에 먹혀 요청이 나가지 않고,
+	#   다음 기회는 6초 뒤 — `SEARCH_WAIT_ABORT`(5초)보다 늦으므로 회차가 통째로 버려지고
+	#   거부로 오판된다. `space=0` 연습에서 청크 2를 이렇게 못 받는 것을 실제로 봤다
+	#   (프록시 로그에 요청이 **한 건도 없는데** 하네스는 "거부"로 찍었다).
+	#   원본의 선행 요청이 방금 이 자리를 건드렸을 때가 정확히 그 상황이다.
+	if ranking._chunk_last_try.has(need_ci):
+		ranking._chunk_last_try.erase(need_ci)
 	# 정확히 한 틱만 흘린다. 그 틱은 `_needs_chunk_wait`가 삼켜서 `tick_count`가 자라지
 	# 않으므로 시뮬레이션에 보이지 않고, 원본의 `want_chunk` 요청만 살아 있다.
 	g._sim_acc = g.FIXED_DT
 	return guard < 1
+
+# ★ 청크 요청의 결과를 판정표에 남기고, 발급이면 앵커를 그 trace로 옮긴다.
+#
+# 판정표가 이 변경의 **목적**이다. 가설이 맞다면 `가설예측 == 실제`가 전건 일치하고,
+# 틀렸다면 불일치가 나온다 — 어느 쪽이든 주행 한 번으로 결론이 난다. 클램프가 걸린 뒤에는
+# 접두사가 항상 경계 위이므로 예측은 전부 "발급"이 되고, 그때 거부가 나오면 **가설은 죽는다.**
+func _search_note_chunk(ci: int, granted: bool) -> void:
+	var rr: int = int(search_req_row.get(ci, 0))
+	var rb: int = int(search_req_base.get(ci, 0))
+	var edge: int = search_anchor_rows
+	var pred: bool = search_pend_ext         # 앵커를 이으면 "발급" 예측
+	search_grant_log.append([ci, rr, rb, edge, granted, pred])
+	if granted and not search_pend_trace.is_empty():
+		search_anchor = search_pend_trace
+		search_anchor_rows = search_pend_rows
+		search_grant_row = maxi(search_grant_row, rr)
+	# 판정의 강도는 두 방향이 다르다.
+	#   예측 거부 → 실제 발급 = **가설 반증.** 모순된 trace를 서버가 받아들였다.
+	#   예측 발급 → 실제 거부 = 가설로 설명 안 되는 거부. 다른 원인이 있다(깊이·스로틀·차단).
+	var mark := "✓일치"
+	if pred and not granted:
+		mark = "✗ 예측 발급인데 거부 — 되감기 아닌 다른 원인"
+	elif not pred and granted:
+		mark = "✗ 예측 거부인데 발급 — ★가설 반증"
+	print("[gate] 청크 %d %s — 요청행=%d 회차접두사=%d 앵커=%d행 예측=%s %s" % [
+			ci, "발급" if granted else "거부", rr, rb, edge,
+			"발급" if pred else "거부", mark])
+
+# trace가 앵커를 **잇는가**(앵커가 그 접두사인가). 가설의 판정자이고 클램프의 판정자다.
+#
+# ★ 처음에는 `search_base_rows >= search_grant_row`(행 번호)로 판정했는데 **틀렸다.**
+#   1회차는 접두사가 비어 있어 `base_rows = 0`이므로 경계가 오른 뒤의 모든 요청이
+#   "거부 예측"으로 찍혔지만, 1회차의 trace는 자기 자신을 잇고 있어 모순이 없다.
+#   모의에서 청크 3·4가 발급되며 예측이 두 번 틀린 것이 그 증거였다. 행 번호가 아니라
+#   **바이트열**을 비교해야 한다.
+func _search_trace_extends(t: Array, anchor: Array) -> bool:
+	if anchor.is_empty():
+		return true
+	if t.size() < anchor.size():
+		return false
+	for i in range(anchor.size()):
+		if int(t[i][0]) != int(anchor[i][0]) or int(t[i][1]) != int(anchor[i][1]):
+			return false
+	return true
+
+# ★ 새 회차의 접두사가 앵커를 잇지 않으면 앵커로 되돌린다.
+#
+# `_search_prefix`는 `search_best`에서 자르므로, 앵커를 만든 회차가 최선이 아니면
+# 접두사가 앵커와 **다른 역사**일 수 있다. 그때는 되감기 폭을 존중하지 않고 앵커를 쓴다 —
+# 탐색력을 조금 잃지만, 잃는 것은 "어차피 거부될 회차"다.
+	# ★★ 앵커에 갇히면 **포기가 아니라 클램프를 푼다.**
+	#
+	# 08-17 실서버에서 배운 것. 앵커는 "마지막으로 발급받은 청크를 요청한 순간"의 trace다.
+	# 그 지점은 곧 **프런티어**이므로, 프런티어에 닿으면 `best_rows == anchor_rows`가 되어
+	# 되감기 여지가 0이 된다 — 415행에서 21회차 연속 `+0`이 났다. 게다가 그 스냅샷은
+	# *안전한 체크포인트가 아니라 요청이 나간 임의의 순간*이라, 그 뒤를 살린 입력이
+	# 잘려 나가 있다. 그래서 갇히면 클램프를 풀어 깊은 되감기를 되살린다.
+	#
+	# 푸는 것이 손해가 아닌 이유: 갇힌 상태의 기대값은 0이고(전진 0이 반복된다),
+	# 클램프를 풀면 최소한 08-15에 466행까지 갔던 그 동작으로 돌아간다. 그리고 그때
+	# 나가는 요청이 **가설의 결정적 시험**이 된다 — 앵커를 잇지 않는 trace가 거부되는지
+	# 판정표가 기록한다.
+func _search_unstick() -> void:
+	# ★★ 08-17 실서버가 확정한 것: 갇혔을 때 클램프를 **풀면 안 된다.**
+	#
+	# 처음에는 "갇힘의 기대값은 0이므로 풀어서 깊은 되감기를 되살린다"로 만들었고,
+	# 08-17 08:33 주행이 그것을 실험으로 만들어 버렸다. 같은 토큰에서 18초 간격으로:
+	#     t=51s 청크 4 @85행  접두사 64 >= 앵커 64  -> **발급**
+	#     t=63s 앵커 85행에 8회차 갇힘 -> 클램프 해제
+	#     t=69s 청크 5 @115행 접두사 43 <  앵커 85  -> **거부**  (예측과 일치)
+	# 같은 아침 1번 주행은 클램프를 쥔 채 청크 2~17을 415행까지 **16건 전부** 받았다.
+	# 깊이(115 < 415)·토큰 나이·요청 빈도가 모두 배제되므로, 되감기로 역사를 갈라 놓은
+	# 것이 거부의 원인이다. 즉 **되감기는 첫 청크 요청 이후로는 토큰에 독이다.**
+	#
+	# 그래서 갇히면 푸는 대신 **거기서 끝낸다.** 프런티어 지터가 값을 만들 때는
+	# `search_stuck_n`이 0으로 리셋되므로, 여기 오는 것은 진짜로 값이 없는 상태다.
+	# 1번 주행은 415행에서 82회차 172초를 헛돌았다 — 그 시간은 새 토큰에 쓰는 게 맞다.
+	if search_anchor_free or search_stuck_n < SEARCH_STUCK_MAX:
+		return
+	search_anchor_free = true      # 재진입 방지 플래그로만 쓴다 (클램프는 계속 쥔다)
+	print("[search] ★ 앵커(%d행) 프런티어에서 %d회차 전진 0 — 이 토큰은 여기까지다 (best=%d점/%d행)" % [
+			search_anchor_rows, search_stuck_n, search_best_score, search_best_rows])
+	if search_best_score >= search_floor and search_floor > 0:
+		_search_submit()
+	else:
+		print("[search] ★ best=%d점이 하한 %d점에 못 미친다 — 제출 없이 끝낸다 (새 토큰 필요)" % [
+				search_best_score, search_floor])
+		_search_finish()
+
+func _search_anchor_base(base: Array) -> Array:
+	if search_anchor.is_empty():
+		return base
+	if _search_trace_extends(base, search_anchor):
+		return base
+	search_clamp_n += 1
+	if search_clamp_n <= 3 or search_clamp_n % 20 == 0:
+		print("[search] 되감기 클램프 %d회 — 접두사 %d개가 앵커(%d개/%d행)를 잇지 않아 앵커로 되돌린다" % [
+				search_clamp_n, base.size(), search_anchor.size(), search_anchor_rows])
+	return search_anchor.duplicate(true)
 
 # 마감을 넘겼으면 새 회차를 띄우지 않는다. 게이트가 어떤 이유로든 회차를 끝내지 못하는
 # 상태에 빠져도 탐색이 반드시 종료되고 최선이 제출된다.
@@ -549,7 +721,8 @@ func _search_retry() -> void:
 	search_fail += 1
 	var drop: int = search_drop + srng.randi_range(0, 3) + (search_fail % 12) * 4
 	drop = mini(drop, maxi(search_best_rows - 2, 1))
-	var base := _search_prefix(search_best, drop)
+	_search_unstick()
+	var base := _search_anchor_base(_search_prefix(search_best, drop))
 	_search_launch(base, (int(base[base.size() - 1][0]) + 1) if not base.is_empty() else -1)
 
 func _search_handoff(g) -> void:
@@ -754,8 +927,13 @@ func _search_on_over(trace: Array, ticks: int, rows: int, score: int,
 		search_best_score = score
 		search_best_ticks = ticks
 		search_fail = 0
+		search_stuck_n = 0       # 전진이 있었다 = 갇힌 게 아니다
 	else:
 		search_fail += 1
+		# 클램프가 걸린 채 전진이 없는 회차만 센다. 클램프가 없을 때의 헛회차는
+		# 정상적인 탐색이므로 여기서 세면 안 된다.
+		if search_clamp_n > 0:
+			search_stuck_n += 1
 	if score >= search_target:
 		# 목표에 닿은 trace를 그대로 제출한다. 부풀리지 않는다.
 		await _search_submit()
@@ -773,7 +951,8 @@ func _search_on_over(trace: Array, ticks: int, rows: int, score: int,
 	# 단조 증가로 두면 한 번 깊어진 뒤 얕은(싸고 값진) 되감기를 다시 못 본다.
 	var drop: int = search_drop + srng.randi_range(0, 3) + (search_fail % 12) * 4
 	drop = mini(drop, maxi(search_best_rows - 2, 1))
-	var base := _search_prefix(search_best, drop)
+	_search_unstick()
+	var base := _search_anchor_base(_search_prefix(search_best, drop))
 	_search_launch(base, (int(base[base.size() - 1][0]) + 1) if not base.is_empty() else -1)
 
 # --- 접두사 자르기 ----------------------------------------------------------
@@ -893,7 +1072,11 @@ func _search_token_age() -> float:
 	var parts := search_token.split(".")
 	if parts.size() < 2 or not str(parts[0]).is_valid_int():
 		return -1.0
-	return Time.get_unix_time_from_system() - float(int(str(parts[0])))
+	# ★ 서버 epoch이 브라우저 시계보다 앞서면 나이가 **음수**로 나온다(08-17 실측 -1s).
+	#   그러면 페이싱 조건 `age >= 0.0`이 거짓이 되어 페이싱을 건너뛰고, 그 사이에
+	#   대기 타이머가 먼저 켜져 27초 뒤 "요청도 안 보내고 거부" 판정이 났다.
+	#   토큰이 파싱된 이상 나이는 0 이상이다 — 스큐는 0으로 접는다.
+	return maxf(Time.get_unix_time_from_system() - float(int(str(parts[0]))), 0.0)
 
 # ★ 하네스를 내리기 전에 **원본의 청크 요청을 반드시 입막음한다.**
 #
@@ -925,6 +1108,35 @@ func _search_finish() -> void:
 	search_cap = SEARCH_TICK_CAP
 	Engine.time_scale = 1.0
 	sfx.set_muted(false)
+	_search_gate_report()
+
+# ★ 게이트 판정표. 이 주행이 가설에 대해 무엇을 말하는지 한 화면에 담는다.
+#   `docs/leaderboard-api.md` §12.4에 그대로 붙일 수 있는 형태로 낸다.
+func _search_gate_report() -> void:
+	if search_grant_log.is_empty():
+		return
+	var ok := 0
+	var bad := 0
+	var killed := 0
+	print("[gate] ===== 판정표 (청크 | 결과 | 요청행 | 회차접두사 | 앵커 | 예측) =====")
+	for row in search_grant_log:
+		if bool(row[5]) == bool(row[4]):
+			ok += 1
+		else:
+			bad += 1
+			if not bool(row[5]) and bool(row[4]):
+				killed += 1      # 모순된 trace가 발급됐다 = 가설 반증
+		print("[gate]   %2d | %s | %4d행 | %4d행 | %4d행 | %s%s" % [
+				int(row[0]), "발급" if bool(row[4]) else "거부", int(row[1]),
+				int(row[2]), int(row[3]), "발급" if bool(row[5]) else "거부",
+				"" if bool(row[5]) == bool(row[4]) else "  ✗불일치"])
+	var verdict := "가설과 모순 없음 (확정은 아니다 — 반증 기회가 있었는지는 별개다)"
+	if killed > 0:
+		verdict = "★ 가설 반증 %d건 — 모순된 trace를 서버가 받아들였다" % killed
+	elif bad > 0:
+		verdict = "거부 %d건이 가설로 설명되지 않는다 — 되감기 외의 원인이 있다" % bad
+	print("[gate] 일치 %d건 / 불일치 %d건 — %s" % [ok, bad, verdict])
+	print("[gate] 앵커 되돌림 %d회, 최종 발급 경계 %d행" % [search_clamp_n, search_grant_row])
 
 # --- 첫 관문: 재생 동일성 ---------------------------------------------------
 #
