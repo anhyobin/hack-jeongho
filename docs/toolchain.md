@@ -105,7 +105,7 @@ cd _dl && python3 inspect_assets.py
 ## 5. 디스크 배치
 
 ```
-GAME_STRUCTURE.md        게임 구조 분석 본문 (1,190줄) — 최종 산출물
+GAME_STRUCTURE.md        게임 구조 분석 본문 — 최종 산출물
 unpacked_manifest.txt    110 엔트리 매니페스트 (unpack.py 출력)
 recovered/*.gd           복원 소스 8개 — 정본
 tools/                   분석·제출 스크립트

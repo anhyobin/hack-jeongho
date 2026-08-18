@@ -22,3 +22,7 @@ _local/trace.json
 
 # 직전 배포의 디컴파일 사본 (다음 배포와 diff 하기 위한 로컬 기준점)
 _local/prev_decomp/
+
+# 이 저장소의 범위 밖에 있는 로컬 작업물 — 여기는 기술 기록만 둔다.
+_private/
+.venv/

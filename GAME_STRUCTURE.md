@@ -151,29 +151,53 @@ UI 코드가 640x960을 하드코딩하고 뷰포트 크기를 한 번도 질의
 
 여덟 개 모듈은 **Main을 서비스 로케이터로 삼는 별 모양(star) 구조**를 이룬다. `Main`이 `Sfx`·`Ranking`·`UI`를 상주 자식으로 보유하고 `Game`을 판마다 만들며, `Game`과 `UI`는 형제 모듈에 직접 접근하지 않고 항상 `main.sfx`, `main.ranking`, `main.ui`를 경유한다(예: game.gd:164 `main.ui.set_score`, game.gd:32 `main.ranking.start_run`, ui.gd:353 `main.ranking.submit`). 시그널은 프로젝트 전체에서 단 하나(`Ranking.submitted`, ranking.gd:5)뿐이고 나머지 모든 통신은 직접 메서드 호출과 필드 접근이다.
 
+```mermaid
+flowchart TD
+    Main["Main · main.gd<br/>앱 상태 머신 + 서비스 로케이터"]
+
+    Sfx["Sfx · sfx.gd<br/>상주"]
+    Ranking["Ranking · ranking.gd<br/>상주"]
+    UI["UI · ui.gd<br/>상주"]
+    Game["Game · game.gd<br/>판마다 생성 / 파괴"]
+
+    Row["Row · row.gd"]
+    Player["Player · player.gd"]
+    ThemeDefs["ThemeDefs · theme_defs.gd<br/>인스턴스 없음 · 정적 데이터만"]
+
+    Main --> Sfx
+    Main --> Ranking
+    Main --> UI
+    Main ==>|"new / free · main.gd:39-41"| Game
+
+    Game --> Row
+    Game --> Player
+    Row <-->|"log_at · hazard_hit · is_blocked"| Player
+
+    Game -.->|"main.ui.set_score<br/>show_banner · float_text"| UI
+    Game -.->|"main.ranking.start_run<br/>game.gd:32"| Ranking
+    UI -.->|"main.ranking.submit<br/>ui.gd:353"| Ranking
+    Game & UI -.->|main.sfx| Sfx
+
+    Game --> ThemeDefs
+    Row --> ThemeDefs
+    UI --> ThemeDefs
+
+    classDef locator fill:#2d3f5e,stroke:#7aa2d6,stroke-width:3px,color:#eaf0f8
+    classDef svc fill:#26402f,stroke:#7ec850,color:#eaf5e8
+    classDef ephemeral fill:#4a3320,stroke:#d89a4a,color:#f8f0e4
+    classDef staticdata fill:#3d2b40,stroke:#c08ac8,color:#f5eaf8
+    class Main locator
+    class Sfx,Ranking,UI svc
+    class Game,Row,Player ephemeral
+    class ThemeDefs staticdata
 ```
-                        ┌──────────────────────┐
-                        │  Main (main.gd)      │  앱 상태 머신 + 서비스 로케이터
-                        └──┬────┬────┬─────┬───┘
-            생성/보유 ┌─────┘    │    │     └───── 판마다 생성/파괴
-                      ▼          ▼    ▼                    ▼
-                 ┌────────┐ ┌────────┐ ┌──────┐      ┌──────────┐
-                 │  Sfx   │ │Ranking │ │  UI  │◄─────│   Game   │
-                 └────────┘ └────────┘ └──┬───┘ set_score  └──┬───┘
-                      ▲          ▲        │ show_banner       │
-                      │          │        │ float_text        │
-                      └──────────┴────────┘                   │
-                       main.sfx / main.ranking 경유 접근        │
-                                                              │
-                     ┌────────────────────────────────────────┼───────────┐
-                     ▼                    ▼                   ▼           │
-                ┌────────┐          ┌──────────┐        ┌──────────┐      │
-                │  Row   │◄────────►│  Player  │        │ThemeDefs │◄─────┘
-                └────────┘  log_at  └──────────┘        └──────────┘  static only
-                 hazard_hit / is_blocked                      ▲
-                 Row.tex() / Row.make_eye_glow() ─────────────┘
-                 (정적 헬퍼를 Player·UI가 재사용)      Row·UI도 직접 호출
-```
+
+실선은 소유(부모 → 자식), 굵은 실선은 판마다 생성/파괴, 점선은 `main.*`을 경유한 형제 모듈
+접근이다. **점선이 있어야 할 자리에 실선이 하나도 없다는 것이 이 구조의 핵심이다** — `Game`과
+`UI`는 서로를 참조하지 않고 언제나 `main`을 통한다. 위 그림에서 뺀 간선이 하나 있다:
+`Row`의 정적 텍스처 캐시 `Row.tex()`와 `Row.make_eye_glow()`를 `Player`(player.gd:36, 42-47)와
+`UI`(ui.gd:126, 131, 166, 426, 470)가 재사용한다 — 즉 `Row`는 행 로직 모듈이면서 스프라이트
+로딩 유틸리티를 겸하는데, 소유 관계가 아니라 정적 헬퍼 호출이라 간선으로 그리지 않았다.
 
 `ThemeDefs`는 인스턴스가 존재하지 않는 순수 정적 데이터 계층이라 누구든 정적 함수로 직접 호출한다 — `theme_for_row`의 호출 지점은 game.gd:42·76·82·344와 ui.gd:252다. 단 `Row`는 `theme_for_row`를 직접 부르지 않고 테마 딕셔너리를 `build()`의 `p_theme` 인자로 전달받으며(row.gd:75, 78, game.gd:76), 대신 `ThemeDefs.difficulty`(row.gd:80), `ambush_p`(row.gd:139), `rush_lane_p`(row.gd:158), `gorani_p`(row.gd:313)를 직접 호출한다. `Row`는 정적 텍스처 캐시 `Row.tex()`와 `Row.make_eye_glow()`를 제공하는데, 이것을 `Player`(player.gd:36, 42-47)와 `UI`(ui.gd:126, 131, 166, 426, 470)가 재사용한다 — 즉 `Row`는 행 로직 모듈이면서 동시에 스프라이트 로딩 유틸리티 역할을 겸한다.
 
@@ -237,32 +261,40 @@ main.tscn
 
 `app_state`는 `"title"`, `"play"`, `"paused"`, `"over"` 네 문자열만 갖는다(초기값 `"title"`, main.gd:8). 전이는 아래 다이어그램이 전부다.
 
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> title : Main._ready()<br/>main.gd:8, 25
+
+    title : "title"
+    play : "play"
+    paused : "paused"
+    over : "over"
+
+    note right of title
+        ui.show_title()
+    end note
+
+    title --> play : start_game(char_id)<br/>ui.gd:188 「게임 시작」
+
+    play --> paused : ESC / P → pause_game()<br/>main.gd:90-91
+    paused --> play : ESC / P (main.gd:92-93)<br/>또는 「계속하기」 ui.gd:547
+    paused --> title : to_title()<br/>ui.gd:549 「타이틀로」
+
+    play --> over : game.kill_player(cause)<br/>→ main.on_game_over() game.gd:313
+    over --> play : retry() → start_game(last_char)<br/>ui.gd:377 「다시하기」
+    over --> title : to_title()<br/>ui.gd:380 「타이틀로」
+
+    note right of paused
+        get_tree().paused = true
+    end note
+    note right of over
+        1.0초 후 ui.show_game_over()
+    end note
 ```
-   (부팅) Main._ready() ──► app_state = "title" ──► ui.show_title()
-              │
-              ▼
-        ┌───────────┐   start_game(char_id)          ┌──────────┐
-        │  "title"  │ ─────────────────────────────► │  "play"  │
-        └───────────┘   ui.gd:188 "게임 시작"          └──────────┘
-              ▲                                        │      ▲
-              │                       ESC / P           │      │  ESC / P (main.gd:92-93)
-              │                     pause_game()        │      │  또는 "계속하기" (ui.gd:547)
-              │                     (main.gd:90-91)     ▼      │
-              │                                    ┌────────────┐
-              ├───── to_title() ◄───────────────── │  "paused"  │  get_tree().paused = true
-              │      ui.gd:549 "타이틀로"            └────────────┘
-              │
-              │        game.kill_player(cause) → main.on_game_over(...)   ("play"에서만)
-              │                                        │  game.gd:313
-              │                                        ▼
-              │                                   ┌──────────┐
-              ├───── to_title() ◄──────────────── │  "over"  │ ── 1.0초 후 ui.show_game_over()
-              │      ui.gd:380 "타이틀로"           └──────────┘
-              │                                        │
-              └────────────────────────────────────────┘
-                       retry() → start_game(last_char) ──► "play"
-                       ui.gd:377 "다시하기"
-```
+
+`"paused"`에서 게임오버로 갈 수 없고 `"over"`에서 일시정지할 수 없다 — `kill_player`는
+`"play"`에서만 호출되고, `pause_game`도 `"play"`만 받는다. 즉 위 여섯 전이가 전부다.
 
 | 전이 | 함수(위치) | 트리거 |
 |---|---|---|

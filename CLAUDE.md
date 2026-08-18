@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-A reverse-engineering workspace for a **live third-party web game** — not an application to build. It contains (a) the recovered source of that game, (b) the Python toolchain that recovered it, and (c) `patch/` — the recovered source with an autopilot spliced in, repacked into a runnable `index.pck`. There is no build system and no test suite. The primary deliverable is `GAME_STRUCTURE.md` (1,190 lines), a line-accurate analysis of the game.
+A reverse-engineering workspace for a **live third-party web game** — not an application to build. It contains (a) the recovered source of that game, (b) the Python toolchain that recovered it, and (c) `patch/` — the recovered source with an autopilot spliced in, repacked into a runnable `index.pck`. There is no build system and no test suite. The primary deliverable is `GAME_STRUCTURE.md`, a line-accurate analysis of the game.
 
 The workspace is tracked in the **private** repo `anhyobin/hack-jeongho` (branch `main`). Keep it private — `recovered/` is derived from another author's code. What is and isn't committed: **the engine and the static assets ARE committed on purpose** — `_local/index.wasm` (39.5 MB), `_local/index.js`, `_local/index.*.png` and `_dl/*.old`. They have been byte-identical across every deploy so far (only the pck changes), so a fresh clone can serve the patched client without re-fetching 40 MB. What is gitignored is the **per-deploy pck** and everything derived from it: `_dl/index.pck`, `_dl/extracted/`, `_local/index.*.pck`, `_local/prev_decomp/`. So to re-run the pipeline you need exactly one download — the current `index.<hash>.pck`, whose name you read out of `_dl/index.html`.
 
@@ -21,7 +21,7 @@ All three analysis scripts use hardcoded relative paths, so the working director
 #    old pck is gone once you download the new one, so this is your only diff base.
 mkdir -p _local/prev_decomp && cp _dl/extracted/scripts/*.decompiled.gd _local/prev_decomp/
 
-# 1. unpack the GDPC container -> _dl/extracted/ (122 entries as of 08-15), manifest to stdout
+# 1. unpack the GDPC container -> _dl/extracted/ (file_count=118 as of 08-15), manifest to stdout
 cd _dl && python3 unpack.py > ../unpacked_manifest.txt
 
 # 2. decompile the 8 binary-token scripts (writes *.decompiled.gd beside each input)
@@ -80,6 +80,11 @@ python3 tools/watch_gate.py [--baseline]
 ```
 
 `tools/` holds byte-identical copies of the three `_dl/` scripts — a change to one needs the same change to the other, or drop one copy.
+
+**This repo is the technical record only.** `_private/` holds local work that is
+out of scope here — it is gitignored, nothing tracked may reference it, and it
+must not be re-added. Anything you write in a tracked file should stand on its
+own as engineering.
 
 ## The integrity invariant: leftover = 0
 
