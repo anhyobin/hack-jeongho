@@ -151,6 +151,21 @@ var search_pend_trace: Array = []    # 지금 기다리는 청크 요청이 들�
 var search_pend_rows := 0
 var search_pend_ext := true           # 그 trace가 앵커를 잇는가 = 가설의 예측
 var search_clamp_n := 0              # 앵커로 되돌린 횟수 (로그 억제용)
+# ★★ 구간 상한 탐색 (`ssg=1`) — **여유를 운에 맡기지 않고 만든다.**
+#
+# 08-17 실측: 성공한 주행은 전부 `여유 = best_rows - anchor_rows`가 있었고(600점은 11행),
+# 실패한 주행은 전부 여유 0이었다. 여유가 0이면 되감기가 앵커를 위반하므로 지터만 돌게 된다.
+#
+# 여유는 구조적으로 만들 수 있다. 청크 M+1은 `cam_row + 14 >= (M+1)*25`일 때 요청되므로,
+# 봇을 `(M+1)*25 - 22`행에 세우면 **그 요청이 아예 나가지 않는다.** 앵커는 청크 M을
+# 요청했던 행(≈ M*25 - 8)에 머물고, 그 사이 약 11행이 자유 되감기 구간이 된다.
+# 그 구간에서 마음껏 되감아 최선을 찾은 뒤, 상한을 풀어 한 번 넘는다 — 그때 나가는
+# 요청의 trace는 앵커를 잇는다(구간 전체가 앵커 위쪽이므로).
+#
+# 즉 **오늘 한 번 운으로 얻은 조건을 매 구간에 복제한다.**
+var search_seg := false              # 구간 상한 탐색을 쓰는가
+var search_seg_open := false         # 이번 회차는 상한을 풀어 경계를 넘는다
+var search_seg_n := 0                # 구간을 넘은 횟수
 var search_stuck_n := 0              # 클램프가 걸린 채 전진이 0인 회차 수
 var search_anchor_free := false      # 갇힘 종료를 한 번만 처리하기 위한 플래그
 # ★ 클램프의 **대가**와 그 출구. 앵커를 지키면 깊은 되감기를 잃는다 — 모의에서 앵커
@@ -307,34 +322,32 @@ func _search_chunk_ok(g, guard: int) -> bool:
 		return false
 
 	var reached: int = g.max_row - g.start_row
-	if search_stall_t0 <= 0.0 or search_stall_ci != need_ci:
-		# ★ 간격 초기화는 **청크가 실제로 바뀔 때만** 한다. `_search_launch`가 회차마다
-		#   `search_stall_t0`을 0으로 되돌리므로, 여기서 무조건 초기화하면 같은 청크를
-		#   두고 회차가 도는 동안 매 회차 한 건씩 즉시 나가서 6초 간격이 무력화된다.
-		#   `search_req_t`는 main에 있어 회차를 넘어 살아남는다 — 그것이 요점이다.
-		var moved: bool = search_stall_ci != need_ci
+	if search_stall_ci != need_ci:
+		# 기다리는 청크가 바뀌었다. 포기 시계는 **아직 켜지 않는다** — 요청이 실제로
+		# 나간 뒤부터 재야 한다(아래 참조).
 		search_stall_ci = need_ci
-		search_stall_t0 = now
-		if moved:
-			search_req_t = 0.0   # 새 청크는 간격을 기다리지 않고 즉시 한 번 물어본다
-		# ★ 이 요청이 들고 나가는 것을 기록한다 — 도달 행과 **이 회차의 접두사 행**.
-		#   접두사가 `search_grant_row`보다 낮으면 가설상 이 요청은 거부된다. 그 예측을
-		#   요청 시점에 미리 찍어 두면, 결과와 대조해 가설을 판정할 수 있다.
-		if not search_req_row.has(need_ci):
-			search_req_row[need_ci] = reached
-			search_req_base[need_ci] = search_base_rows
-		# 서버가 검증할 **바로 그 trace**를 스냅샷한다. 회차는 이 뒤로도 자라므로
-		# 지금 복사해 두지 않으면 나중에는 같은 것을 재구성할 수 없다.
-		search_pend_trace = g.input_trace.duplicate(true)
-		search_pend_rows = reached
-		# ★ 가설의 예측을 **요청 시점에** 확정해 둔다. 이 trace가 서버가 마지막으로
-		#   인정한 trace(앵커)를 잇는가 — 잇지 않으면 가설은 "거부"를 예측한다.
-		search_pend_ext = _search_trace_extends(g.input_trace, search_anchor)
+		search_stall_t0 = 0.0
 		print("[search] 청크 %d 대기 — 원본이 요청한다 (%d행, 아래끝+%d, 틱 %d, 나이 %.0fs) 앵커=%d행%s" % [
 				need_ci, reached, reached - (need_ci - 1) * g.chunk_rows,
 				g.tick_count, age, search_anchor_rows,
 				"" if search_pend_ext else "  ← 가설: 앵커를 잇지 않는 trace 이므로 거부 예측"])
-	if now - search_stall_t0 >= SEARCH_WAIT_ABORT:
+
+	# ★★ 포기 시계는 **요청이 실제로 나간 뒤부터** 돈다.
+	#
+	# 08-18 실측한 두 번째 유령 거부. `SEARCH_WAIT_ABORT(5.0) < SEARCH_REQ_INTERVAL(6.0)`
+	# 인데, 새 청크만 간격을 면제받는다(`moved`). 그런데 `_search_launch`는 회차마다
+	# `search_stall_t0`만 0으로 되돌리고 **`search_stall_ci`는 남겨둔다.** 그래서
+	# 어떤 청크를 한 번 기다렸다가 회차가 끊기면, 다음 회차에서 같은 청크에 도달할 때
+	# `moved`가 거짓이 되어 간격 면제를 못 받고 — **6초를 기다려야 하는데 5초에 포기**한다.
+	# 요청은 한 건도 나가지 않는데 "거부"로 기록되고, `SEARCH_CHUNK_FAIL_MAX = 1`이
+	# 그것을 영구 상한으로 확정한다.
+	#
+	# 실측(08-18 00:17): 프록시 응답 18건 전부 200, 403 0건. 그런데 게임은
+	# "청크 12를 못 받는다 = 행수 상한 278행"으로 주행을 끝냈다. 청크 12는 요청된 적이 없다.
+	#
+	# 그래서 시계를 요청 방출 지점으로 옮긴다. 두 의도가 모두 살아 있다 —
+	# 벽 하나에 요청 1건(간격), 그리고 요청 뒤 5초에 판정(포기).
+	if search_stall_t0 > 0.0 and now - search_stall_t0 >= SEARCH_WAIT_ABORT:
 		search_chunk_fail += 1
 		search_stall_t0 = 0.0
 		_search_reap_chunks()
@@ -342,16 +355,11 @@ func _search_chunk_ok(g, guard: int) -> bool:
 				need_ci, SEARCH_WAIT_ABORT, search_chunk_fail, reached])
 		_search_note_chunk(need_ci, false)
 		if search_chunk_fail >= SEARCH_CHUNK_FAIL_MAX:
-			# 이 청크는 얻을 수 없다. 상한으로 판정하고 그 안에서 점수를 올린다.
-			# 봇을 `boundary - 22`에서 멈추면 `need_ci`가 이 청크로 넘어오지 않는다
-			# (`cam_row + 14 < boundary`가 유지된다) — 그래서 다시 얼지 않는다.
 			search_capped = true
 			search_row_cap = need_ci * g.chunk_rows - 22
 			print("[search] ★ 청크 %d를 못 받는다 = 행수 상한 %d행 (최선 %d점/%d행)" % [
 					need_ci, search_row_cap, search_best_score, search_best_rows])
 			g.bot_rows = search_row_cap
-			# 상한이 `sfloor`에 못 미치면(보너스를 넉넉히 20%로 봐도) 더 갈아 봐야
-			# 의미가 없다 — 헛회차를 수백 번 도는 것을 막는다.
 			if search_floor > 0 and float(search_row_cap) * 1.2 < float(search_floor):
 				print("[search] ★ 상한 %d행으로는 %d점에 닿을 수 없다 — 탐색을 끝낸다 (제출 없음)" % [
 						search_row_cap, search_floor])
@@ -362,15 +370,20 @@ func _search_chunk_ok(g, guard: int) -> bool:
 
 	# ★ **요청 간격을 반드시 묶는다.** 원본은 대기 중 매 틱 `want_chunk`를 부르고,
 	#   서버가 즉답(403/429)하면 `_chunk_pending`이 바로 풀려 다음 틱이 또 보낸다.
-	#   08-15 11:03 실측: 청크 9 한 자리에 **275건**이 나갔다(초당 8건). 남의 단일 스레드
-	#   서버에 그것은 그 자체로 사고이고, 429 스로틀에 걸려 진짜 응답도 못 보게 된다.
-	#   간격은 원본 HTTP 타임아웃(5초)보다 길게 둔다 — 그래야 자리를 풀 때 이미 끝난
-	#   요청이라 중복이 나가지 않는다.
+	#   08-15 11:03 실측: 청크 9 한 자리에 **275건**이 나갔다(초당 8건).
 	if now - search_req_t < SEARCH_REQ_INTERVAL:
 		ranking._chunk_pending[need_ci] = true     # 간격 안에서는 원본의 요청을 삼킨다
 		search_blocked[need_ci] = true
 		g._sim_acc = 0.0
 		return false
+	# 이 요청이 서버에 보여줄 trace를 스냅샷한다(회차는 그 뒤로도 자란다).
+	if not search_req_row.has(need_ci):
+		search_req_row[need_ci] = reached
+		search_req_base[need_ci] = search_base_rows
+	search_pend_trace = g.input_trace.duplicate(true)
+	search_pend_rows = reached
+	search_pend_ext = _search_trace_extends(g.input_trace, search_anchor)
+	search_stall_t0 = now                        # ★ 여기서 포기 시계를 켠다
 	search_req_t = now
 	search_blocked.erase(need_ci)
 	ranking._chunk_pending.erase(need_ci)
@@ -384,6 +397,16 @@ func _search_chunk_ok(g, guard: int) -> bool:
 		ranking._chunk_last_try.erase(need_ci)
 	# 정확히 한 틱만 흘린다. 그 틱은 `_needs_chunk_wait`가 삼켜서 `tick_count`가 자라지
 	# 않으므로 시뮬레이션에 보이지 않고, 원본의 `want_chunk` 요청만 살아 있다.
+	# ★★ 원본이 이 자리를 삼키는 경우가 있다 — 08-18에 세 번 관측했다. 릴리스는 분명히
+	#   실행됐는데(포기 시계가 정확히 5초 뒤 발동) 프록시에 요청이 0건이었다.
+	#   원인을 정적으로 좁히지 못했으므로 **방아쇠를 직접 당긴다.** 호출하는 함수와 인자는
+	#   원본 `_needs_chunk_wait`이 쓰는 것과 완전히 같으므로(`want_chunk(need_ci,
+	#   input_trace, tick_count, last_char)`) 요청 내용·깊이·본문이 달라지지 않는다.
+	#   합성 trace가 아니라 **원본이 보내려던 그 요청**이다.
+	#   중복도 나지 않는다 — 우리 호출이 `_chunk_pending[need_ci]`를 세우므로 같은 틱의
+	#   원본 호출은 맨 위에서 즉시 되돌아 나간다.
+	if ranking.chunk_seed_of(need_ci) == 0 and not ranking._chunk_pending.has(need_ci):
+		ranking.want_chunk(need_ci, g.input_trace, g.tick_count, last_char)
 	g._sim_acc = g.FIXED_DT
 	return guard < 1
 
@@ -531,6 +554,8 @@ func _search_begin() -> void:
 	var dp = _bot_qs("sdrop")
 	if dp != null and str(dp).is_valid_int():
 		search_drop = maxi(int(str(dp)), 1)
+	var sg = _bot_qs("ssg")
+	search_seg = sg != null and str(sg) == "1"
 	var sp = _bot_qs("sspd")
 	if sp != null and str(sp).is_valid_float():
 		search_speed = maxf(float(str(sp)), 1.0)
@@ -625,6 +650,17 @@ func _search_reap_chunks() -> void:
 		print("[search] 청크 %d개 새로 확보 — 누적 %d개, 최대 %d (약 %d행까지)" % [
 				got, search_chunks.size(), mx, (mx + 1) * search_chunk_rows])
 
+func _search_seg_cap() -> int:
+	# 지금 수확한 청크로 갈 수 있는 마지막 행(= 다음 요청이 나가지 않는 상한). 0이면 무제한.
+	if not search_seg or search_capped:
+		return 0
+	var mx := -1
+	for k in search_chunks.keys():
+		mx = maxi(mx, int(str(k)))
+	if mx < 1:
+		return 0
+	return (mx + 1) * search_chunk_rows - 22
+
 func _search_launch(base: Array, hand: int) -> void:
 	search_base = base
 	search_base_rows = _search_rows_of(base)
@@ -651,6 +687,19 @@ func _search_launch(base: Array, hand: int) -> void:
 	game.bot_name = ""
 	if search_capped:
 		game.bot_rows = search_row_cap   # 상한 너머로 나가면 월드가 로컬로 샌다
+	elif search_seg:
+		# 구간 상한. 최선이 상한에 닿았으면 한 회차만 풀어서 경계를 넘고 청크를 수확한다.
+		var cap := _search_seg_cap()
+		if cap > 0 and search_best_rows >= cap - 1:
+			search_seg_open = true
+			search_seg_n += 1
+			game.bot_rows = 0
+			if search_seg_n <= 3 or search_seg_n % 10 == 0:
+				print("[seg] %d번째 개방 — 상한 %d행에 닿았다(best %d행). 경계를 넘어 청크를 받는다" % [
+						search_seg_n, cap, search_best_rows])
+		else:
+			search_seg_open = false
+			game.bot_rows = cap
 	if base.is_empty():
 		search_cap = SEARCH_CAP_LIVE
 		return

@@ -1,0 +1,22 @@
+[   0.000] 게임: http://127.0.0.1:8980/   (API는 https://d15csla760jzen.cloudfront.net/로 중계)
+[   0.000] 오버라이드: name=None score=None rows=None
+[   0.000] 모의: start=False chunk 지연=0.15s | POST 차단=False
+[   0.000] 제출 허용: name=핵정호 최소점수=710
+[   7.601]   GET  /api/start -> 200 {"token": "1786979106.a1dedbb981f0b86b.0e6596599730fa82", "seed": "2173714357085120", "chunk_rows": 25, "chunks": {"0": 
+[  25.765]   POST /api/chunk i=2 ticks=784 trace=51건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 2, "seed": "4479472529723798"}
+[  36.693]   POST /api/chunk i=3 ticks=1434 trace=82건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 3, "seed": "3382285363701429"}
+[  76.872]   GET  /api/scores?char=peccy -> 200 {"scores": [{"name": "정호돌격", "score": 700, "rows": 654, "stage": 32, "char": "peccy", "ts": 1786971089, "elapsed
+[  76.873]   GET  /api/start -> 200 {"token": "1786979175.3cf326efac0ae008.bc8f2ad72d14fa05", "seed": "2290960798741658", "chunk_rows": 25, "chunks": {"0": 
+[ 588.442]   GET  /api/start -> 200 {"token": "1786979687.18a95d27b5e9a455.1056d81c2b4f2e34", "seed": "929424726135667", "chunk_rows": 25, "chunks": {"0": "
+[ 604.192]   POST /api/chunk i=2 ticks=630 trace=48건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 2, "seed": "1927187186819097"}
+[ 612.700]   POST /api/chunk i=3 ticks=1131 trace=74건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 3, "seed": "2840172028221152"}
+[ 623.023]   POST /api/chunk i=4 ticks=1753 trace=99건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 4, "seed": "353839757345771"}
+[ 637.144]   POST /api/chunk i=5 ticks=2600 trace=165건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 5, "seed": "1203606093262086"}
+[ 650.252]   POST /api/chunk i=6 ticks=3376 trace=213건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 6, "seed": "2149708985499146"}
+[ 665.606]   POST /api/chunk i=7 ticks=4303 trace=257건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 7, "seed": "4132782297748082"}
+[ 680.843]   POST /api/chunk i=8 ticks=5212 trace=321건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 8, "seed": "3248501941321915"}
+[ 692.138]   POST /api/chunk i=9 ticks=5884 trace=359건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 9, "seed": "3740463340261012"}
+[ 698.912]   POST /api/chunk i=10 ticks=6285 trace=386건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 10, "seed": "1639741450532936"}
+[ 710.458]   POST /api/chunk i=11 ticks=6983 trace=422건 ua='Mozilla/5.0 (Macintosh' -> 200 {"ok": true, "i": 11, "seed": "4331649661024311"}
+[ 753.282]   GET  /api/scores?char=peccy -> 200 {"scores": [{"name": "정호돌격", "score": 700, "rows": 654, "stage": 32, "char": "peccy", "ts": 1786971089, "elapsed
+[ 753.284]   GET  /api/start -> 200 {"token": "1786979851.706b89ece32fbde9.0ccd45b8bb7e5360", "seed": "3982804457270329", "chunk_rows": 25, "chunks": {"0": 
